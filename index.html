@@ -59,7 +59,12 @@ var st=document.getElementById('st'),res=document.getElementById('result'),pv=do
 var C={LBY:'ليبيا',EGY:'مصر',TUN:'تونس',DZA:'الجزائر',MAR:'المغرب',SDN:'السودان',YEM:'اليمن',SYR:'سوريا',JOR:'الأردن',LBN:'لبنان',PSE:'فلسطين',IRQ:'العراق',KWT:'الكويت',QAT:'قطر',ARE:'الإمارات',OMN:'عُمان',BHR:'البحرين',SAU:'السعودية',TUR:'تركيا',USA:'أمريكا',GBR:'بريطانيا',FRA:'فرنسا',ITA:'إيطاليا',DEU:'ألمانيا',MLI:'مالي',NER:'النيجر',TCD:'تشاد',CIV:'ساحل العاج',SEN:'السنغال',GHA:'غانا',NGA:'نيجيريا'};
 var WORD={LIBYAN:'LBY',EGYPTIAN:'EGY',TUNISIAN:'TUN',ALGERIAN:'DZA',MOROCCAN:'MAR',SUDANESE:'SDN',YEMENI:'YEM',SYRIAN:'SYR',JORDANIAN:'JOR',LEBANESE:'LBN',IRAQI:'IRQ',SAUDI:'SAU',TURKISH:'TUR'};
 
-var MODELS=['gemini-2.0-flash','gemini-flash-latest','gemini-1.5-flash','gemini-2.5-flash'];
+var MODELS=['gemini-2.0-flash','gemini-2.0-flash-001','gemini-flash-latest','gemini-1.5-flash','gemini-1.5-flash-8b','gemini-2.5-flash','gemini-2.0-flash-lite','gemini-1.5-flash-latest'];
+var PROXIES=['',
+ 'https://api.allorigins.win/raw?url=',
+ 'https://corsproxy.io/?url=',
+ 'https://api.codetabs.com/v1/proxy?quest='];
+var GEM='https://generativelanguage.googleapis.com/v1beta/models/';
 
 var PROMPT=[
 'You are an expert passport OCR system. The image shows a passport bio-data page.',
@@ -122,13 +127,19 @@ function toB64(file){
   fr.onerror=function(){reject(new Error('تعذر فتح الملف'))};
   fr.readAsDataURL(file)})}
 
-/* ---------- الاتصال بـ Gemini ---------- */
+/* ---------- الاتصال عبر مباشر أو وسيط ---------- */
 async function callGem(key,model,payload){
- var resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+encodeURIComponent(key),
-  {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
- var txt=await resp.text(),j=null;
- try{j=JSON.parse(txt)}catch(e){}
- return{status:resp.status,json:j,txt:txt}}
+ var url=GEM+model+':generateContent?key='+encodeURIComponent(key);
+ var last=null;
+ for(var p=0;p<PROXIES.length;p++){
+  var full=(PROXIES[p]?PROXIES[p]+encodeURIComponent(url):url);
+  try{
+   var resp=await fetch(full,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+   var txt=await resp.text(),j=null;
+   try{j=JSON.parse(txt)}catch(e){}
+   return{status:resp.status,json:j,txt:txt,via:PROXIES[p]?'وسيط':'مباشر'}}
+  catch(e){last=e;continue}}
+ throw new Error('تعذر الاتصال بالسيرفر مباشرة وعبر الوسطاء — تحقق من الإنترنت')}
 
 function parseGem(j){
  if(j&&j.candidates&&j.candidates.length){
@@ -151,12 +162,12 @@ async function testKey(){
   for(var i=0;i<MODELS.length;i++){
    var r=await callGem(key,MODELS[i],{contents:[{parts:[{text:'Reply with the word OK'}]}],generationConfig:{maxOutputTokens:10}});
    if(r.status===404)continue;
-   if(r.status===200){out.innerHTML='<span style="color:#9be3c9">✅ المفتاح يعمل بنجاح!</span> — أرسل الآن صورة الجواز 📷';return}
+   if(r.status===200){out.innerHTML='<span style="color:#9be3c9">✅ المفتاح يعمل بنجاح!</span> (عبر '+r.via+') — أرسل الآن صورة الجواز 📷';return}
    var m=gerr(r.json);
    if(r.status===400&&/API key not valid/i.test(m)){out.innerHTML='<span style="color:#ff9a8a">❌ المفتاح غير صالح — انسخه من جديد كاملاً من AI Studio.</span>';return}
    out.innerHTML='<span style="color:#ff9a8a">❌ خطأ '+r.status+(m?' — '+esc(m):'')+'</span>';return}
-  out.innerHTML='<span style="color:#ff9a8a">❌ لم يستجب السيرفر — أخبرني بالرسالة.</span>';
- }catch(e){out.innerHTML='<span style="color:#ff9a8a">❌ تعذر الاتصال بخدمة جوجل — تحقق من الإنترنت، ولو تكرر أخبرني.</span>'}}
+  out.innerHTML='<span style="color:#ff9a8a">❌ كل الموديلات ردت 404 — الخدمة قد تكون محجوبة عند مزوّد الإنترنت. افتح generativelanguage.googleapis.com في المتصفح وأخبرني بما ترى.</span>';
+ }catch(e){out.innerHTML='<span style="color:#ff9a8a">❌ '+esc(e.message)+'</span>'}}
 
 /* ---------- التحقق الرياضي من MRZ ---------- */
 function cd(s){var w=[7,3,1],t=0,i,c;
@@ -204,7 +215,7 @@ async function run(){
    st.textContent='☁️ جارٍ قراءة الجواز بالمحرك الذكي...';
    var r;
    try{r=await callGem(key,MODELS[i],payload)}
-   catch(e){showErr('تعذر الاتصال بخدمة جوجل — تحقق من الإنترنت. لو تكرر أخبرني فوراً.');st.textContent='';return}
+   catch(e){showErr(e.message);st.textContent='';return}
    if(r.status===200){
     var d=parseGem(r.json);
     if(d){st.textContent='✅ تمت القراءة بنجاح';render(d);return}
