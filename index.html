@@ -8,6 +8,7 @@
 body{font-family:sans-serif;background:#14141f;color:#eee;max-width:640px;margin:0 auto;padding:18px;text-align:center}
 button{background:#2a9d8f;color:#fff;border:0;padding:14px 18px;border-radius:12px;font-size:16px;margin:5px}
 button.gray{background:#4a4a5a}
+button.small{background:transparent;border:1px solid #3a3a4a;color:#8ecae6;padding:8px 14px;font-size:13px;border-radius:10px;margin:4px 2px}
 img#preview{max-width:100%;border-radius:12px;margin-top:12px}
 #st{color:#f4a261;margin:14px;font-size:15px;min-height:20px}
 #result{background:#20202c;border-radius:14px;padding:12px;text-align:right}
@@ -17,18 +18,25 @@ img#preview{max-width:100%;border-radius:12px;margin-top:12px}
 .warn{color:#e76f51;font-size:13px;margin-top:8px}
 .src{font-size:11px;color:#6a6a7a;margin-top:6px}
 #keybox{background:#20202c;border-radius:12px;padding:12px;margin:10px 0;text-align:right}
-#apikey{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #3a3a4a;background:#14141f;color:#eee;direction:ltr;margin-top:6px}
+.keyrow{display:flex;gap:8px;margin-top:6px}
+#apikey{flex:1;padding:10px;border-radius:8px;border:1px solid #3a3a4a;background:#14141f;color:#eee;direction:ltr;min-width:0;font-family:monospace}
 .small{font-size:12px;color:#8a8a9a}
-.error{background:#3a1a1a;color:#ff9a8a;border-radius:12px;padding:14px;margin:12px;font-size:14px;text-align:right}
+.error{background:#3a1a1a;color:#ff9a8a;border-radius:12px;padding:14px;margin:12px;font-size:14px;text-align:right;word-break:break-word}
+#testout{font-size:13px;margin-top:8px;text-align:right;min-height:18px;word-break:break-word}
 </style>
 </head>
 <body>
 <h2>🛂 قارئ بيانات الجواز</h2>
 
 <div id="keybox">
-<b style="color:#8ecae6">🔑 مفتاح Mindee (مطلوب)</b>
-<input id="apikey" type="password" placeholder="الصق مفتاح Mindee هنا" oninput="saveKey()">
-<div class="small">يُحفظ في هاتفك فقط ولا يراه أحد.</div>
+<b style="color:#8ecae6">🔑 مفتاح Mindee</b>
+<div class="keyrow">
+ <input id="apikey" type="password" placeholder="الصق المفتاح هنا" oninput="saveKey()">
+ <button class="small" style="margin:0" onclick="toggleEye()">👁</button>
+</div>
+<button class="small" onclick="testKey()">⚡ اختبار المفتاح</button>
+<div id="testout"></div>
+<div class="small">يُحفظ في هاتفك فقط ولا يراه أحد. اضغط «اختبار المفتاح» للتأكد قبل إرسال الصور.</div>
 </div>
 
 <div>
@@ -40,7 +48,7 @@ img#preview{max-width:100%;border-radius:12px;margin-top:12px}
 <img id="preview" hidden>
 <div id="st"></div>
 <div id="result" hidden></div>
-<div id="errbox" hidden></div>
+<div id="errbox" class="error" hidden></div>
 <button id="copyBtn" class="gray" hidden onclick="copyAll()">📋 نسخ البيانات كنص</button>
 <textarea id="raw" hidden></textarea>
 
@@ -48,22 +56,78 @@ img#preview{max-width:100%;border-radius:12px;margin-top:12px}
 var st=document.getElementById('st'),res=document.getElementById('result'),pv=document.getElementById('preview'),
     copyBtn=document.getElementById('copyBtn'),raw=document.getElementById('raw'),
     errbox=document.getElementById('errbox');
-var C={LBY:'ليبيا',EGY:'مصر',TUN:'تونس',DZA:'الجزائر',MAR:'المغرب',SDN:'السودان',YEM:'اليمن',SYR:'سوريا',JOR:'الأردن',LBN:'لبنان',PSE:'فلسطين',IRQ:'العراق',KWT:'الكويت',QAT:'قطر',ARE:'الإمارات',OMN:'عُمان',BHR:'البحرين',SAU:'السعودية',TUR:'تركيا',USA:'أمريكا',GBR:'بريطانيا',FRA:'فرنسا',ITA:'إيطاليا',DEU:'ألمانيا',MLI:'مالي',NER:'النيجر',TCD:'تشاد',CIV:'ساحل العاج',SEN:'السنغال',GHA:'غانا',NGA:'نيجيريا',TUN2:''};
+var C={LBY:'ليبيا',EGY:'مصر',TUN:'تونس',DZA:'الجزائر',MAR:'المغرب',SDN:'السودان',YEM:'اليمن',SYR:'سوريا',JOR:'الأردن',LBN:'لبنان',PSE:'فلسطين',IRQ:'العراق',KWT:'الكويت',QAT:'قطر',ARE:'الإمارات',OMN:'عُمان',BHR:'البحرين',SAU:'السعودية',TUR:'تركيا',USA:'أمريكا',GBR:'بريطانيا',FRA:'فرنسا',ITA:'إيطاليا',DEU:'ألمانيا',MLI:'مالي',NER:'النيجر',TCD:'تشاد',CIV:'ساحل العاج',SEN:'السنغال',GHA:'غانا',NGA:'نيجيريا'};
 
 var origFile=null;
 document.getElementById('cam').onchange=function(e){go(e.target.files[0])};
 document.getElementById('gal').onchange=function(e){go(e.target.files[0])};
 
-function saveKey(){localStorage.setItem('mk',document.getElementById('apikey').value.trim())}
-document.getElementById('apikey').value=localStorage.getItem('mk')||'';
-
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
-function showError(msg){
- errbox.hidden=false;
- errbox.innerHTML='⚠️ '+esc(msg);
- res.hidden=true;copyBtn.hidden=true}
+/* ---------- المفتاح ---------- */
+function cleanKey(){
+ var k=document.getElementById('apikey').value||'';
+ k=k.replace(/\s+/g,'')                    /* كل المسافات والأسطر */
+    .replace(/^["']+|["']+$/g,'')          /* علامات تنصيص */
+    .replace(/^(token|bearer)[:\s]*/i,''); /* لو نسخت كلمة Token/Bearer بالخطأ */
+ return k}
+function saveKey(){localStorage.setItem('mk',cleanKey())}
+function getKey(){return localStorage.getItem('mk')||''}
+document.getElementById('apikey').value=getKey();
+function toggleEye(){var i=document.getElementById('apikey');i.type=(i.type==='password')?'text':'password'}
 
+/* ---------- بناء محاولات الإرسال (نسخة × صيغة مصادقة) ---------- */
+var VERS=['v4','v3','v5','v2','v1'],SCHS=['Token','Bearer','','token'];
+function attempts(){
+ var list=[],sv=(localStorage.getItem('combo')||'').split('|');
+ if(sv.length===2&&sv[0]&&sv[1])list.push({v:sv[0],s:sv[1]});
+ SCHS.forEach(function(s){VERS.forEach(function(v){
+  if(!list.some(function(a){return a.v===v&&a.s===s}))list.push({v:v,s:s})})});
+ return list}
+
+function errmsg(j){
+ if(!j)return'';
+ if(j.message)return j.message;
+ if(j.error&&j.error.message)return j.error.message;
+ if(j.api_error&&j.api_error.message)return j.api_error.message;
+ return''}
+
+async function callApi(key,ver,sch,body){
+ var headers={};
+ headers['Authorization']=sch?(sch+' '+key):key;
+ var resp=await fetch('https://api.mindee.net/v1/products/mindee/passport/'+ver+'/predict',
+  {method:'POST',headers:headers,body:body});
+ var txt=await resp.text(),j=null;
+ try{j=JSON.parse(txt)}catch(e){}
+ return{status:resp.status,json:j,txt:txt}}
+
+function predOf(j){
+ if(!j)return null;
+ if(j.document&&j.document.prediction)return j.document.prediction;
+ if(j.prediction)return j.prediction;
+ return null}
+
+/* ---------- اختبار المفتاح بدون صورة ---------- */
+async function testKey(){
+ var out=document.getElementById('testout'),key=getKey();
+ if(!key){out.innerHTML='<span style="color:#ff9a8a">الصق المفتاح أولاً ثم اضغط الاختبار.</span>';return}
+ if(key.length<15){out.innerHTML='<span style="color:#ff9a8a">⚠️ المفتاح قصير جداً ('+key.length+' حرفاً فقط) — يبدو أنه لم يُنسخ كاملاً. انسخه من جديد بالكامل.</span>';return}
+ out.innerHTML='<span style="color:#f4a261">⏳ جارٍ اختبار المفتاح...</span>';
+ var atts=attempts(),last=null;
+ for(var i=0;i<atts.length;i++){
+  var a=atts[i],r;
+  try{r=await callApi(key,a.v,a.s,new FormData())}
+  catch(e){out.innerHTML='<span style="color:#ff9a8a">❌ تعذر الاتصال بالسيرفر — تحقق من الإنترنت. لو تكررت أخبرني.</span>';return}
+  if(r.status===404)continue;
+  if(r.status===401||r.status===403){last=r;continue}
+  if(r.status>=500)continue;
+  localStorage.setItem('combo',a.v+'|'+a.s);
+  out.innerHTML='<span style="color:#9be3c9">✅ المفتاح يعمل بنجاح!</span> — أرسل الآن صورة الجواز 📷';
+  return}
+ var m=last?errmsg(last.json):'';
+ out.innerHTML='<span style="color:#ff9a8a">❌ السيرفر يرفض المفتاح [HTTP '+(last?last.status:'?')+']'+(m?' — "'+esc(m)+'"':'')+'</span><br><span style="color:#8a8a9a">تأكد أنك نسخت «API Key» نفسه (وليس Team ID أو غيره). لو استمرت المشكلة، انسخ هذه الرسالة وأرسلها لي حرفياً.</span>'}
+
+/* ---------- الصورة ---------- */
 function go(f){
  if(!f)return;
  origFile=f;
@@ -72,14 +136,19 @@ function go(f){
  pv.src=URL.createObjectURL(f);
  pv.hidden=false}
 
+function showError(msg){
+ errbox.hidden=false;
+ errbox.innerHTML='⚠️ '+esc(msg);
+ res.hidden=true;copyBtn.hidden=true}
+
 function raw2jpg(file){
  return new Promise(function(resolve){
   var fr=new FileReader();
   fr.onload=function(){
    var img=new Image();
    img.onload=function(){
-    var mx=1600,r=img.width>img.height?img.width/img.height:1;
-    var sc=Math.min(1,mx/(img.width>img.height?img.width:img.height));
+    var mx=1600;
+    var sc=Math.min(1,mx/Math.max(img.width,img.height));
     if(sc>=1){resolve(file);return}
     var c=document.createElement('canvas');
     c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);
@@ -87,79 +156,60 @@ function raw2jpg(file){
     x.imageSmoothingQuality='high';
     x.drawImage(img,0,0,c.width,c.height);
     c.toBlob(function(b){resolve(b||file)},'image/jpeg',0.95)};
+   img.onerror=function(){resolve(file)};
    img.src=fr.result};
+  fr.onerror=function(){resolve(file)};
   fr.readAsDataURL(file)})}
 
+/* ---------- المعالجة الرئيسية ---------- */
 async function run(){
- var key=(localStorage.getItem('mk')||'').trim();
- if(!key){
-  showError('لا يوجد مفتاح Mindee. اذهب إلى mindee.com → سجّل → انسخ المفتاح من منتج Passport والصقه في الصندوق أعلاه، ثم أعد اختيار الصورة.');
-  st.textContent='';
-  return}
-
+ errbox.hidden=true;res.hidden=true;copyBtn.hidden=true;
+ var key=getKey();
+ if(!key){showError('لا يوجد مفتاح. الصقه في الصندوق أعلى الصفحة ثم أعد اختيار الصورة.');st.textContent='';return}
  try{
-  st.textContent='☁️ جارٍ القراءة بالمحرك السحابي...';
+  st.textContent='☁️ جارٍ إرسال الصورة إلى المحرك السحابي...';
   var file=await raw2jpg(origFile);
-  var vers=['v5','v4','v3'],last='فشل غير معروف';
-  var p=null;
-
-  for(var i=0;i<vers.length&&!p;i++){
+  var atts=attempts(),last=null;
+  for(var i=0;i<atts.length;i++){
+   var a=atts[i];
+   st.textContent='☁️ جارٍ القراءة'+(i>0?' (محاولة '+(i+1)+')':'')+'...';
    var fd=new FormData();
    fd.append('document',file,'passport.jpg');
-   var resp=await fetch('https://api.mindee.net/v1/products/mindee/passport/'+vers[i]+'/predict',
-    {method:'POST',headers:{'Authorization':'Bearer '+key},body:fd});
+   var r;
+   try{r=await callApi(key,a.v,a.s,fd)}
+   catch(e){showError('تعذر الاتصال بالسيرفر — تحقق من الإنترنت. لو تكررت أخبرني.');st.textContent='';return}
+   if(r.status===404)continue;
+   if(r.status===401||r.status===403){last=r;continue}
+   if(r.status===402||r.status===429){showError('انتهت حصتك لهذا الشهر أو تجاوزت حد المرسلات في الدقيقة — انتظر قليلاً أو راجع خطتك في Mindee.');st.textContent='';return}
+   if(r.status>=500){last=r;continue}
+   if(r.status>=200&&r.status<300){
+    var p=predOf(r.json);
+    if(p&&(p.surname||p.document_number||p.given_names)){
+     localStorage.setItem('combo',a.v+'|'+a.s);
+     st.textContent='✅ تمت القراءة بنجاح';
+     renderCloud(p);return}
+    showError('لم يتعرف المحرك على جواز في هذه الصورة. جرّب صورة أوضح لصفحة البيانات (صفحة الصورة والبيانات، ليست الغلاف).');st.textContent='';return}
+   last=r;break}
+  var m=last?errmsg(last.json):'';
+  showError('السيرفر يرفض المفتاح [HTTP '+(last?last.status:'?')+']'+(m?' — '+m:'')+'. اضغط زر «اختبار المفتاح» أعلاه واتبع تعليماته.');
+  st.textContent='';
+ }catch(e){showError('خطأ غير متوقع: '+e.message);st.textContent=''}}
 
-   if(resp.status===404){last='نسخة API غير متاحة، جارّ تجربة التالية';continue}
-
-   if(resp.status===401||resp.status===403){
-    showError('المفتاح غير صحيح أو منتهي. تأكد من نسخه كاملاً من لوحة Mindee (منتج Passport → API Keys).');
-    st.textContent='';
-    return}
-
-   if(resp.status===402||resp.status===429){
-    showError('انتهت حصتك المجانية لهذا الشهر (أو تجاوزت حد المرسلات في الدقيقة). انتظر قليلاً أو راجع خطتك في لوحة Mindee.');
-    st.textContent='';
-    return}
-
-   if(!resp.ok){
-    showError('خطأ من السيرفر (HTTP '+resp.status+'). أعد المحاولة بعد قليل.');
-    st.textContent='';
-    return}
-
-   var j=await resp.json();
-   var pr=j&&j.document&&j.document.prediction;
-   if(!pr||(!pr.surname&&!pr.document_number)){
-    showError('لم يتعرف المحرك على جواز في هذه الصورة. جرّب صورة أوضح لصفحة البيانات (صفحة الصورة والبيانات، ليست الغلاف).');
-    st.textContent='';
-    return}
-
-   p=pr}
-
-  if(!p){
-   showError(last);
-   st.textContent='';
-   return}
-
-  st.textContent='✅ تمت القراءة بنجاح';
-  renderCloud(p);
- }catch(e){
-  if((''+e.message).indexOf('fetch')>-1||(''+e).indexOf('Network')>-1){
-   showError('تعذر الاتصال بالسيرفر. تحقق من الإنترنت — وإذا تكررت أخبرني لأضيف وسيطاً يحل الحجب المحتمل.')}
-  else{showError(e.message)}
-  st.textContent=''}}
-
+/* ---------- عرض النتائج ---------- */
 function renderCloud(p){
- function v(x){return x&&x.value?x.value:''}
+ function v(x){if(x&&typeof x==='object')return x.value||'';return x||''}
  var gv='';
- if(p.given_names&&p.given_names.length)gv=p.given_names.map(function(x){return x.value||''}).join(' ').trim();
+ if(p.given_names){
+  if(Array.isArray(p.given_names))gv=p.given_names.map(function(x){return (x&&x.value)||''}).join(' ').trim();
+  else gv=v(p.given_names)}
  var sn=v(p.surname),doc=v(p.document_number),nat=v(p.nationality),ctry=v(p.country),
      dob=v(p.birth_date),exp=v(p.expiry_date),sex=v(p.sex),iss=v(p.issue_date),
-     bp=v(p.birth_place),auth=v(p.issuing_authority),mrz=v(p.mrz);
+     bp=v(p.birth_place),auth=v(p.issuing_authority);
  var rows=[];
  function add(l,val){if(val)rows.push([l,val])}
  add('اسم العائلة',sn);
  add('الاسم الأول',gv);
- var natD=C[nat]?C[nat]:nat;
+ var natD=C[nat]?C[nat]:(nat||'');
  if(!natD&&ctry)natD=C[ctry]?C[ctry]:ctry;
  add('الجنسية',natD?natD+(nat&&natD!==nat?' ('+nat+')':''):'');
  add('رقم الجواز',doc);
@@ -169,16 +219,12 @@ function renderCloud(p){
  add('تاريخ الانتهاء',exp);
  add('مكان الميلاد',bp);
  add('جهة الإصدار',auth);
-
  var h='';
  rows.forEach(function(rw){h+='<div class="row"><b>'+rw[0]+'</b><span class="val">'+esc(rw[1])+'</span></div>'});
- if(!rows.length){
-  showError('لم يستخرج المحرك أي بيانات من هذه الصورة — جرّب صورة أوضح.');
-  return}
+ if(!rows.length){showError('لم يستخرج المحرك أي بيانات — جرّب صورة أوضح.');return}
  h+='<div class="src">المصدر: المحرك السحابي Mindee (موديل مدرَّب على الجوازات) ✔</div>';
  h+='<div class="warn">راجع رقم الجواز وتاريخ الانتهاء قبل إصدار التذكرة كعادة دائمة.</div>';
  res.innerHTML=h;res.hidden=false;
-
  var out=[];
  if(sn)out.push('SURNAME: '+sn);
  if(gv)out.push('GIVEN NAMES: '+gv);
