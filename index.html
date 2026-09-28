@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>قارئ الجواز</title>
+<style>
+body{font-family:sans-serif;background:#14141f;color:#eee;max-width:640px;margin:0 auto;padding:18px;text-align:center}
+button{background:#2a9d8f;color:#fff;border:0;padding:14px 18px;border-radius:12px;font-size:16px;margin:5px}
+button.gray{background:#4a4a5a}
+img#preview{max-width:100%;border-radius:12px;margin-top:12px}
+#st{color:#f4a261;margin:14px;font-size:15px;min-height:20px}
+#result{background:#20202c;border-radius:14px;padding:12px;text-align:right}
+.row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #3a3a4a;padding:9px 4px}
+.row b{color:#8ecae6;white-space:nowrap}
+.val{word-break:break-all}
+.warn{color:#e76f51;font-size:13px;margin-top:8px}
+</style>
+</head>
+<body>
+<h2>🛂 قارئ بيانات الجواز</h2>
+<div>
+<button onclick="cam.click()">📷 التقاط بالكاميرا</button>
+<button onclick="gal.click()">🖼️ اختيار من المعرض</button>
+</div>
+<input id="cam" type="file" accept="image/*" capture="environment" hidden>
+<input id="gal" type="file" accept="image/*" hidden>
+<img id="preview" hidden>
+<div id="st"></div>
+<div id="result" hidden></div>
+<button id="copyBtn" class="gray" hidden onclick="copyAll()">📋 نسخ البيانات كنص</button>
+<textarea id="raw" hidden></textarea>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+var st=document.getElementById('st'),res=document.getElementById('result'),pv=document.getElementById('preview');
+var C={EGY:'مصر',SAU:'السعودية',YEM:'اليمن',SDN:'السودان',MAR:'المغرب',DZA:'الجزائر',TUN:'تونس',LBY:'ليبيا',SYR:'سوريا',JOR:'الأردن',LBN:'لبنان',PSE:'فلسطين',IRQ:'العراق',KWT:'الكويت',QAT:'قطر',ARE:'الإمارات',OMN:'عمان',BHR:'البحرين',TUR:'تركيا',USA:'أمريكا',GBR:'بريطانيا',FRA:'فرنسا',DEU:'ألمانيا',ITA:'إيطاليا',IND:'الهند',PAK:'باكستان',BGD:'بنغلاديش',PHL:'الفلبين',IDN:'إندونيسيا',NGA:'نيجيريا',ETH:'إثيوبيا',KEN:'كينيا',SOM:'الصومال',DJI:'جيبوتي',ERI:'إريتريا'};
+
+document.getElementById('cam').onchange=function(e){go(e.target.files[0])};
+document.getElementById('gal').onchange=function(e){go(e.target.files[0])};
+
+function go(f){if(!f)return;pv.onload=run;pv.src=URL.createObjectURL(f);pv.hidden=false}
+
+async function run(){
+ try{
+  res.hidden=true;document.getElementById('copyBtn').hidden=true;
+  var log=function(m){if(m.status==='recognizing text')st.textContent='جارٍ قراءة الجواز... %'+Math.round(m.progress*100)};
+  st.textContent='جارٍ قراءة الجواز... (قد يستغرق حتى 30 ثانية)';
+  var r=await Tesseract.recognize(pv,'eng',{logger:log});
+  var d=extract(r.data.text);
+  if(!d){ // إعادة المحاولة على النصف السفلي من الصورة (مكان سطور MRZ)
+   var w=pv.naturalWidth,h=pv.naturalHeight,cut=Math.round(h*0.45);
+   var c=document.createElement('canvas');c.width=w;c.height=cut;
+   c.getContext('2d').drawImage(pv,0,h-cut,w,cut,0,0,w,cut);
+   r=await Tesseract.recognize(c,'eng',{logger:log});
+   d=extract(r.data.text);
+  }
+  if(!d){st.textContent='';res.hidden=false;
+   res.innerHTML='<div class="warn">❌ لم أجد سطور الـMRZ.<br>جرّب صورة أوضح يظهر فيها <b>أسفل الجواز كاملاً</b> (السطران المليئان بـ&lt;&lt;&lt;) بإضاءة جيدة وزاوية مستقيمة.</div>';return}
+  st.textContent='✅ تمت القراءة بنجاح';render(d);
+ }catch(err){st.textContent='⚠️ حصل خطأ: '+err.message}
+}
+
+function extract(text){
+ var ls=text.toUpperCase().split(/\n/).map(function(l){return l.replace(/[^A-Z0-9<]/g,'')})
+  .filter(function(l){return l.length>=40&&l.length<=48&&l.indexOf('>')===-1&&l.indexOf('<')>-1});
+ if(ls.length===0)return null;
+ var l1,l2;
+ if(ls.length===1){var m=ls[0];if(m.length>=86){l1=m.slice(0,44);l2=m.slice(44,88)}else return null}
+ else{l1=ls[ls.length-2];l2=ls[ls.length-1]}
+ if(l1.charAt(0)!=='P')return null;
+ l1=(l1+Array(45).join('<')).slice(0,44);
+ l2=(l2+Array(45).join('<')).slice(0,44);
+ return parseTD3(l1,l2);
+}
+
+function cd(s){var w=[7,3,1],t=0,i,c;
+ for(i=0;i<s.length;i++){c=s.charAt(i);
+  t+=(c==='<'?0:(c<='9'?+c:c.charCodeAt(0)-55))*w[i%3]}
+ return t%10}
+
+function dt(s,isExp){
+ if(!/^\d{6}$/.test(s))return s;
+ var y=+s.slice(0,2),now=new Date().getFullYear()%100;
+ return (isExp?2000+y:(y>now?1900+y:2000+y))+'-'+s.slice(2,4)+'-'+s.slice(4)}
+
+function parseTD3(l1,l2){
+ var nm=l1.slice(5).split('<<');
+ var d={issuer:l1.slice(2,5).replace(/</g,''),
+  surname:(nm[0]||'').replace(/</g,' ').trim(),
+  given:(nm[1]||'').replace(/</g,' ').trim(),
+  doc:l2.slice(0,9).replace(/</g,''),
+  country:l2.slice(10,13).replace(/</g,''),
+  dob:l2.slice(13,19),sex:l2.charAt(20),exp:l2.slice(21,27)};
+ d.okDoc=cd(l2.slice(0,9))===+l2.charAt(9);
+ d.okDob=cd(d.dob)===+l2.charAt(19);
+ d.okExp=cd(d.exp)===+l2.charAt(27);
+ return d}
+
+function mark(b){return b?' ✔':' ⚠️'}
+
+function render(d){
+ var cc=C[d.country]||C[d.issuer]||d.country||d.issuer;
+ var rows=[['اسم العائلة',d.surname],['الاسم الأول',d.given],['الجنسية',cc],
+  ['رقم الجواز',d.doc+mark(d.okDoc)],['تاريخ الميلاد',dt(d.dob)+mark(d.okDob)],
+  ['الجنس',d.sex==='M'?'ذكر (M)':d.sex==='F'?'أنثى (F)':d.sex],
+  ['تاريخ الانتهاء',dt(d.exp,true)+mark(d.okExp)]];
+ var h='';
+ rows.forEach(function(r){h+='<div class="row"><b>'+r[0]+'</b><span class="val">'+r[1]+'</span></div>'});
+ h+='<div class="warn">علامة ⚠️ تعني احتمال خطأ في القراءة — قارنها بنظرك مع الصورة.</div>';
+ res.innerHTML=h;res.hidden=false;
+ document.getElementById('raw').value='SURNAME: '+d.surname+'\nGIVEN NAMES: '+d.given+
+  '\nNATIONALITY: '+(d.country||d.issuer)+'\nPASSPORT NO: '+d.doc+
+  '\nDATE OF BIRTH: '+dt(d.dob)+'\nSEX: '+d.sex+'\nEXPIRY: '+dt(d.exp,true);
+ document.getElementById('copyBtn').hidden=false}
+
+function copyAll(){
+ var t=document.getElementById('raw');
+ if(navigator.clipboard&&navigator.clipboard.writeText){
+  navigator.clipboard.writeText(t.value).then(function(){alert('تم النسخ ✅')})
+ }else{t.hidden=false;t.select();document.execCommand('copy');t.hidden=true;alert('تم النسخ ✅')}}
+</script>
+</body>
+</html>
