@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>قارئ الجواز - ليبيا</title>
+<title>قارئ الجواز</title>
 <style>
 body{font-family:sans-serif;background:#14141f;color:#eee;max-width:640px;margin:0 auto;padding:18px;text-align:center}
 button{background:#2a9d8f;color:#fff;border:0;padding:14px 18px;border-radius:12px;font-size:16px;margin:5px}
@@ -20,10 +20,20 @@ img#preview{max-width:100%;border-radius:12px;margin-top:12px}
 h3{margin:14px 0 4px;color:#8ecae6;font-size:15px}
 #rawtext{background:#101018;color:#9be3c9;border-radius:10px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;text-align:left;direction:ltr;max-height:240px;overflow:auto;margin-top:6px}
 .src{font-size:11px;color:#6a6a7a;margin-top:6px}
+#keybox{background:#20202c;border-radius:12px;padding:12px;margin:10px 0;text-align:right}
+#apikey{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #3a3a4a;background:#14141f;color:#eee;direction:ltr;margin-top:6px}
+.small{font-size:12px;color:#8a8a9a}
 </style>
 </head>
 <body>
 <h2>🛂 قارئ بيانات الجواز</h2>
+
+<div id="keybox">
+<b style="color:#8ecae6">☁️ المحرك السحابي (دقة أعلى بكثير — اختياري)</b>
+<input id="apikey" type="password" placeholder="الصق هنا مفتاح Mindee الخاص بك" oninput="saveKey()">
+<div class="small">يُحفظ في هاتفك فقط ولا يراه أحد. اتركه فارغاً لاستخدام القراءة المحلية المجانية.</div>
+</div>
+
 <div>
 <button onclick="cam.click()">📷 التقاط بالكاميرا</button>
 <button onclick="gal.click()">🖼️ اختيار من المعرض</button>
@@ -37,20 +47,94 @@ h3{margin:14px 0 4px;color:#8ecae6;font-size:15px}
 <button id="copyBtn" class="gray" hidden onclick="copyAll()">📋 نسخ البيانات كنص</button>
 <textarea id="raw" hidden></textarea>
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 var st=document.getElementById('st'),res=document.getElementById('result'),pv=document.getElementById('preview'),
     copyBtn=document.getElementById('copyBtn'),raw=document.getElementById('raw'),rotBtn=document.getElementById('rotBtn');
-var C={LBY:'ليبيا 🇱🇾',EGY:'مصر',TUN:'تونس',DZA:'الجزائر',MAR:'المغرب',SDN:'السودan'.replace('السودan','السودان'),YEM:'اليمن',SYR:'سوريا',JOR:'الأردن',LBN:'لبنان',PSE:'فلسطين',IRQ:'العراق',KWT:'الكويت',QAT:'قطر',ARE:'الإمارات',OMN:'عُمان',BHR:'البحرين',SAU:'السعودية',TUR:'تركيا',USA:'أمريكا',GBR:'بريطانيا',FRA:'فرنسا',ITA:'إيطاليا',DEU:'ألمانيا',MLI:'مالي',NER:'النيجر',TCD:'تشاد',CIV:'ساحل العاج',SEN:'السنغال',GHA:'غانا',NGA:'نيجيريا'};
+var C={LBY:'ليبيا',EGY:'مصر',TUN:'تونس',DZA:'الجزائر',MAR:'المغرب',SDN:'السودان',YEM:'اليمن',SYR:'سوريا',JOR:'الأردن',LBN:'لبنان',PSE:'فلسطين',IRQ:'العراق',KWT:'الكويت',QAT:'قطر',ARE:'الإمارات',OMN:'عُمان',BHR:'البحرين',SAU:'السعودية',TUR:'تركيا',USA:'أمريكا',GBR:'بريطانيا',FRA:'فرنسا',ITA:'إيطاليا',DEU:'ألمانيا',MLI:'مالي',NER:'النيجر',TCD:'تشاد',CIV:'ساحل العاج',SEN:'السنغال',GHA:'غانا',NGA:'نيجيريا'};
 
+var origFile=null,ph='';
 document.getElementById('cam').onchange=function(e){go(e.target.files[0])};
 document.getElementById('gal').onchange=function(e){go(e.target.files[0])};
-function go(f){if(!f)return;rotBtn.hidden=false;pv.onload=run;pv.src=URL.createObjectURL(f);pv.hidden=false}
+function go(f){if(!f)return;origFile=f;rotBtn.hidden=false;res.hidden=true;copyBtn.hidden=true;pv.onload=run;pv.src=URL.createObjectURL(f);pv.hidden=false}
+function saveKey(){localStorage.setItem('mk',document.getElementById('apikey').value.trim())}
+document.getElementById('apikey').value=localStorage.getItem('mk')||'';
 function rot90(){pv.onload=run;pv.src=rotC(pv,90).toDataURL('image/jpeg',0.92)}
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-var ph='';
 function log(m){if(m.status==='recognizing text')st.textContent=ph+' %'+Math.round(m.progress*100)}
 
+function loadTess(){
+ return new Promise(function(resolve,reject){
+  if(window.Tesseract)return resolve();
+  var s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+  s.onload=resolve;
+  s.onerror=function(){reject(new Error('تعذر تحميل المحرك المحلي — تحقق من الإنترنت'))};
+  document.head.appendChild(s)})}
+
+/* ================= المحرك السحابي ================= */
+async function tryCloud(file,key){
+ var vers=['v5','v4','v3'],last='فشل الاتصال';
+ for(var i=0;i<vers.length;i++){
+  var fd=new FormData();
+  fd.append('document',file,'passport.jpg');
+  try{
+   var resp=await fetch('https://api.mindee.net/v1/products/mindee/passport/'+vers[i]+'/predict',
+    {method:'POST',headers:{'Authorization':'Bearer '+key},body:fd});
+   if(resp.status===404){last='نسخة غير متاحة';continue}
+   var j=null;
+   try{j=await resp.json()}catch(e2){}
+   if(!resp.ok){
+    if(resp.status===401||resp.status===403)throw new Error('المفتاح غير صحيح — تأكد من نسخه كاملاً');
+    throw new Error('HTTP '+resp.status)}
+   var p=j&&j.document&&j.document.prediction;
+   if(!p||(!p.surname&&!p.document_number))throw new Error('لم يتعرف على جواز في الصورة — جرّب صورة أوضح');
+   return p}
+  catch(e){
+   if((''+e.message).indexOf('fetch')>-1)throw new Error('تعذر الاتصال بالسيرفر (اتصال محجوب أو إنترنت ضعيف)');
+   last=e.message}}
+ throw new Error(last)}
+
+function renderCloud(p){
+ function v(x){return x&&x.value?x.value:''}
+ var gv='';
+ if(p.given_names&&p.given_names.length)gv=p.given_names.map(function(x){return x.value||''}).join(' ').trim();
+ var sn=v(p.surname),doc=v(p.document_number),nat=v(p.nationality),ctry=v(p.country),
+     dob=v(p.birth_date),exp=v(p.expiry_date),sex=v(p.sex),iss=v(p.issue_date),
+     bp=v(p.birth_place),auth=v(p.issuing_authority);
+ var rows=[];
+ function add(l,val){if(val)rows.push([l,val])}
+ add('اسم العائلة',sn);
+ add('الاسم الأول',gv);
+ var natD=C[nat]?C[nat]:nat;
+ if(!natD&&ctry)natD=C[ctry]?C[ctry]:ctry;
+ add('الجنسية',natD?natD+(nat&&natD!==nat?' ('+nat+')':''):'');
+ add('رقم الجواز',doc);
+ add('تاريخ الميلاد',dob);
+ add('الجنس',sex==='M'?'ذكر M':sex==='F'?'أنثى F':sex);
+ add('تاريخ الإصدار',iss);
+ add('تاريخ الانتهاء',exp);
+ add('مكان الميلاد',bp);
+ add('جهة الإصدار',auth);
+ var h='';
+ rows.forEach(function(rw){h+='<div class="row"><b>'+rw[0]+'</b><span class="val">'+esc(rw[1])+'</span></div>'});
+ h+='<div class="src">المصدر: المحرك السحابي Mindee — موديل مدرَّب على الجوازات ✔</div>';
+ h+='<div class="warn">راجع رقم الجواز وتاريخ الانتهاء قبل إصدار التذكرة كعادة دائمة.</div>';
+ res.innerHTML=h;res.hidden=false;
+ var out=[];
+ if(sn)out.push('SURNAME: '+sn);
+ if(gv)out.push('GIVEN NAMES: '+gv);
+ if(nat)out.push('NATIONALITY: '+nat);
+ if(doc)out.push('PASSPORT NO: '+doc);
+ if(dob)out.push('DATE OF BIRTH: '+dob);
+ if(sex)out.push('SEX: '+sex);
+ if(iss)out.push('ISSUE DATE: '+iss);
+ if(exp)out.push('EXPIRY: '+exp);
+ if(bp)out.push('PLACE OF BIRTH: '+bp);
+ if(auth)out.push('AUTHORITY: '+auth);
+ raw.value=out.join('\n');
+ copyBtn.hidden=false}
+
+/* ================= المحرك المحلي (احتياطي) ================= */
 function rotC(img,rot){
  if(!rot)return img;
  var w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
@@ -106,7 +190,6 @@ function prep(src,sc,cf,pr){
  for(i=0;i<n;i++){var j2=i*4;p[j2]=p[j2+1]=p[j2+2]=g[i];p[j2+3]=255}
  x.putImageData(d,0,0);return c}
 
-/* ---- MRZ ---- */
 function cd(s){var w=[7,3,1],t=0,i,c;
  for(i=0;i<s.length;i++){c=s.charAt(i);
   t+=(c==='<'?0:(c<='9'?+c:c.charCodeAt(0)-55))*w[i%3]}
@@ -117,6 +200,11 @@ function dtF(s,ie){
  var y=+s.slice(0,2),cy=new Date().getFullYear()%100;
  var yr=ie?2000+y:(y>cy?1900+y:2000+y);
  return yr+'-'+s.slice(2,4)+'-'+s.slice(4)}
+
+function plaus(s){
+ if(!/^\d{6}$/.test(s))return false;
+ var m=+s.slice(2,4),dd=+s.slice(4);
+ return m>=1&&m<=12&&dd>=1&&dd<=31}
 
 function fixCk(d){
  var nt=[],AL='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
@@ -136,13 +224,8 @@ function fixCk(d){
     var t2=s.slice(0,i2)+(''+dg)+s.slice(i2+1);
     if(t2===s)continue;
     if(cd(t2)===+c&&plaus(t2)){d[k]=t2;d[ok]=true;
-     nt.push('• '+lb+': صُحّح رقم تلقائياً');break L2}}}})}
+     nt.push('• '+lb+': صُحّح رقم تلقائياً');break L2}}}})
  return nt}
-
-function plaus(s){
- if(!/^\d{6}$/.test(s))return false;
- var m=+s.slice(2,4),dd=+s.slice(4);
- return m>=1&&m<=12&&dd>=1&&dd<=31}
 
 function parseMRZ(l1,l2){
  var nm=l1.slice(5).split('<<');
@@ -185,84 +268,59 @@ function mrzSc(t){
    if(s>b)b=s}});
  return b}
 
-/* ---- الصفحة المطبوعة (مخصص لليبيا) ---- */
 function parsePrinted(text){
  var t=text.toUpperCase().replace(/[^\x00-\x7F\n]/g,' ');
  var cl=t.replace(/\s+/g,' ').trim();
- var r={},cf={}; // cf = confidence flags
-
- /* 1) استخراج كل التواريخ */
+ var r={},cf={};
  var dp=/\b(\d{1,2})[\s.\/\-](\d{1,2})[\s.\/\-](\d{4})\b/g;
  var dates=[],m;
  while((m=dp.exec(cl))!==null){
   var dd=+m[1],mm=+m[2],yy=+m[3];
   if(mm>=1&&mm<=12&&dd>=1&&dd<=31&&yy>=1920&&yy<=2100){
-   dates.push({o:m[0],d:dd,mth:mm,y:yy,ts:new Date(yy,mm-1,dd).getTime()})}}
+   dates.push({o:m[0],ts:new Date(yy,mm-1,dd).getTime()})}}
  dates.sort(function(a,b){return a.ts-b.ts});
-
- /* 2) تعيين التواريخ بالعناوين */
  function near(label,date){
   var li=cl.indexOf(label);
   if(li<0)return false;
   var di=cl.indexOf(date.o);
   if(di<0)return false;
   return Math.abs(li-di)<80}
-
  if(dates.length>=3){
   r.dob=dates[0].o;cf.dob='auto';
-  var rest=dates.slice(1);
-  r.issue=rest[0].o;cf.issue='auto';
-  r.exp=rest[rest.length-1].o;cf.exp='auto';
-  /* التحقق بالعناوين إذا وجدت */
+  r.issue=dates[1].o;cf.issue='auto';
+  r.exp=dates[dates.length-1].o;cf.exp='auto';
   dates.forEach(function(dt){
    if(near('DATE OF BIRTH',dt)||near('BIRTH DATE',dt)){r.dob=dt.o;cf.dob='label'}
    if(near('DATE OF ISSUE',dt)||near('ISSUE DATE',dt)){r.issue=dt.o;cf.issue='label'}
-   if(near('DATE OF EXPIRY',dt)||near('EXPIRY',dt)){r.exp=dt.o;cf.exp='label'}});
- }else if(dates.length===2){
+   if(near('DATE OF EXPIRY',dt)||near('EXPIRY',dt)){r.exp=dt.o;cf.exp='label'}})}
+ else if(dates.length===2){
   r.dob=dates[0].o;cf.dob='auto';
   var d2=dates[1];
   if(d2.ts>Date.now()){r.exp=d2.o;cf.exp='auto'}
-  else{r.issue=d2.o;cf.issue='auto'}
-  dates.forEach(function(dt){
-   if(near('DATE OF BIRTH',dt)){r.dob=dt.o;cf.dob='label'}
-   if(near('DATE OF EXPIRY',dt)||near('EXPIRY',dt)){r.exp=dt.o;cf.exp='label'}});
- }else if(dates.length===1){
+  else{r.issue=d2.o;cf.issue='auto'}}
+ else if(dates.length===1){
   var d1=dates[0];
-  if(d1.y<2010){r.dob=d1.o;cf.dob='auto'}
+  if(d1.ts<Date.now()&&d1.o.slice(-4)<2010){r.dob=d1.o;cf.dob='auto'}
   else if(d1.ts>Date.now()){r.exp=d1.o;cf.exp='auto'}
-  else{r.issue=d1.o;cf.issue='auto'}
-  if(near('DATE OF BIRTH',d1)){r.dob=d1.o;cf.dob='label'}
-  if(near('DATE OF EXPIRY',d1)){r.exp=d1.o;cf.exp='label'}}
-
- /* 3) رقم الجواز */
- var pm=cl.match(/\b([A-Z]{1,3}\d{6,9})\b/);
- if(pm){r.doc=pm[1];cf.doc='pattern'}
+  else{r.issue=d1.o;cf.issue='auto'}}
  var plm=cl.match(/PASSPORT\s*(?:NO\.?|NUMBER)?\s*[:\-\/]?\s*([A-Z]{1,3}\d{6,9})/);
  if(plm){r.doc=plm[1];cf.doc='label'}
-
- /* 4) الجنسية */
+ else{var pm=cl.match(/\b([A-Z]{1,3}\d{6,9})\b/);
+  if(pm){r.doc=pm[1];cf.doc='pattern'}}
  if(cl.indexOf('LIBYAN')>-1){r.nat='LIBYAN';cf.nat='label'}
- else if(cl.indexOf('LBY')>-1){r.nat='LBY';cf.nat='auto'}
- else{
-  var nm2=cl.match(/NATIONALITY[\s:\/\-]*(LIBYAN|LBY|EGYPTIAN|EGY|TUNISIAN|TUN|SUDANESE|SDN|ALGERIAN|DZA|MOROCCAN|MAR|YEMENI|YEM|SYRIAN|SYR|CHADIAN|TCD|MALIAN|MLI|NIGERIEN|NER)/);
+ else{var nm2=cl.match(/NATIONALITY[\s:\/\-]*(LIBYAN|LBY|EGYPTIAN|EGY|TUNISIAN|TUN|SUDANESE|SDN|ALGERIAN|DZA|MOROCCAN|MAR|YEMENI|YEM|SYRIAN|SYR|CHADIAN|TCD|MALIAN|MLI|NIGERIEN|NER)/);
   if(nm2){r.nat=nm2[1];cf.nat='label'}}
-
- /* 5) الجنس */
  var sm=cl.match(/\bSEX\s*[:\-\/]?\s*(M|F)\b/);
  if(sm)r.sex=sm[1];
-
- /* 6) الاسم */
  var snm=cl.match(/(?:SURNAME|FAMILY NAME|LAST NAME)[\s:\/\-]*([A-Z][A-Z'\s\-]{1,35}?)(?=\s*(?:GIVEN|NATIONALITY|DATE|SEX|PLACE|TYPE|COUNTRY|PASSPORT|NO\.|NUMBER|ISSUE|EXPIR))/);
  if(snm){r.sn=snm[1].trim();cf.sn='label'}
  var gnm=cl.match(/(?:GIVEN NAMES?|GIVEN NAME|FIRST NAME|FORENAMES)[\s:\/\-]*([A-Z][A-Z'\s\-]{1,35}?)(?=\s*(?:NATIONALITY|DATE|SEX|PLACE|TYPE|COUNTRY|PASSPORT|NO\.|NUMBER|ISSUE|EXPIR))/);
  if(gnm){r.gv=gnm[1].trim();cf.gv='label'}
-
- /* 7) لو لم نجد الاسم بالعناوين — استخراج ذكي */
  if(!r.sn&&!r.gv){
   var skip=['STATE','OF','LIBYA','PASSPORT','TYPE','COUNTRY','SURNAME','GIVEN','NAMES','NAME',
    'NATIONALITY','DATE','BIRTH','PLACE','ISSUE','EXPIRY','EXPIRATION','SEX','MALE','FEMALE',
-   'CODE','AUTHORITY','SIGNATURE','HOLDER','REPUBLIC','JAMAHIRIYA','ARAB','PEOPLES',
-   'SOCIALIST','PEOPLE','THE','TRIPOLI','BENGHAZI','MISURATA','SABHA','TOBRUK','SIRTE','AL'];
+   'CODE','AUTHORITY','SIGNATURE','HOLDER','REPUBLIC','JAMAHIRIYA','ARAB','PEOPLES','SOCIALIST',
+   'PEOPLE','THE','TRIPOLI','BENGHAZI','MISURATA','SABHA','TOBRUK','SIRTE','AL'];
   var words=cl.split(/\s+/);
   var cur=[],best=[];
   for(var i=0;i<words.length;i++){
@@ -275,24 +333,28 @@ function parsePrinted(text){
    r.sn=best[best.length-1];
    r.gv=best.slice(0,-1).join(' ');
    cf.sn='guess';cf.gv='guess'}
-  else if(best.length===1){
-   r.sn=best[0];cf.sn='guess'}}
-
- /* 8) مكان الإصدار/الميلاد */
- var cities=['TRIPOLI','BENGHAZI','MISURATA','SABHA','TOBRUK','SIRTE','ALKHUMS','ZAWIYA','DARNA'];
+  else if(best.length===1){r.sn=best[0];cf.sn='guess'}}
+ var cities=['TRIPOLI','BENGHAZI','MISURATA','SABHA','TOBRUK','SIRTE'];
  for(var ci=0;ci<cities.length;ci++){
-  if(cl.indexOf(cities[ci])>-1){
-   if(!r.pob)r.pob=cities[ci];
-   if(!r.poi)r.poi=cities[ci];break}}
-
+  if(cl.indexOf(cities[ci])>-1){r.poi=cities[ci];break}}
  return {r:r,cf:cf,dates:dates.map(function(d){return d.o}),allText:text.trim()}}
 
-/* ---- المعالجة الرئيسية ---- */
+/* ================= المعالجة الرئيسية ================= */
 async function run(){
  try{
   res.hidden=true;copyBtn.hidden=true;
-  ph='جارٍ تحميل محرك القراءة (أول مرة فقط يأخذ وقتاً أطول)';
+  var key=(localStorage.getItem('mk')||'').trim();
+  if(key){
+   st.textContent='☁️ جارٍ القراءة بالمحرك السحابي... (ثوانٍ معدودة)';
+   try{
+    var p=await tryCloud(origFile,key);
+    st.textContent='✅ تمت القراءة بالمحرك السحابي';
+    renderCloud(p);return}
+   catch(e){st.textContent='⚠️ '+e.message+' — جارٍ القراءة المحلية...'}}
+
+  ph='جارٍ تحميل المحرك المحلي (أول مرة فقط يأخذ وقتاً أطول)';
   st.textContent=ph;
+  await loadTess();
   var w0=pv.naturalWidth||pv.width;
   var sc=w0<600?3.5:w0<900?3:w0<1300?2.2:w0<1800?1.6:1.2;
   if(sc<1)sc=1;
@@ -307,7 +369,6 @@ async function run(){
    if(e.full){d=e.full;return true}
    return false}
 
-  /* مرحلة 1: الاتجاهات الأربعة + MRZ */
   var rots=[0,180,90,270];
   for(i=0;i<rots.length;i++){
    ph=rots[i]?'🔄 فحص الاتجاه ('+rots[i]+'°)...':'جارٍ قراءة سطور MRZ...';
@@ -317,7 +378,6 @@ async function run(){
    if(s2>bSc){bSc=s2;bRot=rots[i]}
    if(take(r2.data.text,rots[i])){rot=rots[i];break}}
 
-  /* مرحلة 2: تحسينات إضافية */
   if(!d&&bSc>0){
    var src2=rotC(pv,bRot);
    var vars=[{cf:.42,pr:'ot'},{cf:.30,pr:'ot'},{cf:.42,pr:'sh'},{cf:.50,pr:'sh'}];
@@ -327,7 +387,6 @@ async function run(){
     r2=await wk.recognize(prep(src2,sc,vars[j].cf,vars[j].pr));
     if(take(r2.data.text,bRot)){rot=bRot;break}}}
 
-  /* مرحلة 3: تصحيح + عرض MRZ */
   var notes=[];
   if(d){notes=fixCk(d);await wk.terminate();
    if(rot){pv.onload=null;pv.src=rotC(pv,rot).toDataURL('image/jpeg',0.92)}
@@ -340,7 +399,6 @@ async function run(){
     st.textContent='✅ تمت القراءة (بعد التصحيح التلقائي)';
     renderMRZ(d,notes);return}}
 
-  /* مرحلة 4: الصفحة المطبوعة (الليبية) */
   ph='جارٍ قراءة الصفحة المطبوعة كاملة...';
   st.textContent=ph;
   await wk.setParameters({tessedit_pageseg_mode:'3'});
@@ -352,11 +410,9 @@ async function run(){
    if(!best||sc2>best.sc)best={tx:r2.data.text,sc:sc2,rot:ors[i]%360}}
   await wk.terminate();
   if(best.rot){pv.onload=null;pv.src=rotC(pv,best.rot).toDataURL('image/jpeg',0.92)}
-  var pr=parsePrinted(best.tx);
-  renderPrinted(pr);
+  renderPrinted(parsePrinted(best.tx));
  }catch(err){st.textContent='⚠️ خطأ: '+err.message}}
 
-/* ---- العرض ---- */
 function mk(b,re){return re?' ⚠️':(b?' ✔':' ⚠️')}
 
 function renderMRZ(d,nt){
@@ -381,10 +437,9 @@ function renderPrinted(pr){
   if(!val)return;
   var mark=conf==='label'?' ✔':conf==='auto'?' ✔?':' ⚠️?';
   h+='<div class="row"><b>'+label+'</b><span class="val">'+esc(val)+mark+'</span></div>'}
- add('الاسم الكامل',(r.gv?r.gv+' ':'')+(r.sn||''),cf.sn==='label'?'label':cf.sn);
  add('اسم العائلة',r.sn,cf.sn);
  add('الاسم الأول',r.gv,cf.gv);
- add('الجنسية',C[r.nat]?C[r.nat]+' ('+r.nat+')':r.nat,cf.nat);
+ add('الجنسية',r.nat,cf.nat);
  add('رقم الجواز',r.doc,cf.doc);
  add('تاريخ الميلاد',r.dob,cf.dob);
  add('الجنس',r.sex==='M'?'ذكر M':r.sex==='F'?'أنثى F':r.sex,r.sex?'label':'');
@@ -397,8 +452,7 @@ function renderPrinted(pr){
   h+='<h3>كل التواريخ المكتشفة</h3>';
   h+=pr.dates.map(function(x){return '<span class="tag">'+x+'</span>'}).join(' ')}
  h+='<h3>النص الكامل المقروء</h3><div id="rawtext">'+esc(pr.allText)+'</div>';
- h+='<div class="warn">⚠️ هذه قراءة تقريبية من الصفحة المطبوعة (بدون MRZ). قارن دائماً بالصورة قبل إصدار التذكرة.</div>';
- h+='<div class="src">المصدر: الصفحة المطبوعة (تقريبي)</div>';
+ h+='<div class="warn">⚠️ قراءة تقريبية محلية — قارن دائماً بالصورة قبل إصدار التذكرة.</div>';
  res.innerHTML=h;res.hidden=false;
  var parts=[];
  if(r.gv||r.sn)parts.push('NAME: '+(r.gv||'')+' '+(r.sn||''));
@@ -410,7 +464,7 @@ function renderPrinted(pr){
  if(r.exp)parts.push('EXPIRY: '+r.exp);
  raw.value=parts.join('\n')+'\n--- النص الكامل ---\n'+pr.allText;
  copyBtn.hidden=false;
- st.textContent='📄 تمت قراءة الصفحة المطبوعة — تحقق من البيانات'}
+ st.textContent='📄 تمت القراءة المحلية للصفحة المطبوعة — تحقق من البيانات'}
 
 function copyAll(){
  if(navigator.clipboard&&navigator.clipboard.writeText){
