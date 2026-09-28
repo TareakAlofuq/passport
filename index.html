@@ -15,6 +15,9 @@ img#preview{max-width:100%;border-radius:12px;margin-top:12px}
 .row b{color:#8ecae6;white-space:nowrap}
 .val{word-break:break-all}
 .warn{color:#e76f51;font-size:13px;margin-top:8px}
+.tag{display:inline-block;background:#3a3a4a;border-radius:8px;padding:2px 8px;font-size:12px;margin:2px;direction:ltr}
+h3{margin:14px 0 4px;color:#8ecae6;font-size:15px}
+#rawtext{background:#101018;color:#9be3c9;border-radius:10px;padding:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;text-align:left;direction:ltr;max-height:240px;overflow:auto;margin-top:6px}
 </style>
 </head>
 <body>
@@ -33,34 +36,54 @@ img#preview{max-width:100%;border-radius:12px;margin-top:12px}
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-var st=document.getElementById('st'),res=document.getElementById('result'),pv=document.getElementById('preview');
-var C={EGY:'مصر',SAU:'السعودية',YEM:'اليمن',SDN:'السودان',MAR:'المغرب',DZA:'الجزائر',TUN:'تونس',LBY:'ليبيا',SYR:'سوريا',JOR:'الأردن',LBN:'لبنان',PSE:'فلسطين',IRQ:'العراق',KWT:'الكويت',QAT:'قطر',ARE:'الإمارات',OMN:'عمان',BHR:'البحرين',TUR:'تركيا',USA:'أمريكا',GBR:'بريطانيا',FRA:'فرنسا',DEU:'ألمانيا',ITA:'إيطاليا',IND:'الهند',PAK:'باكستان',BGD:'بنغلاديش',PHL:'الفلبين',IDN:'إندونيسيا',NGA:'نيجيريا',ETH:'إثيوبيا',KEN:'كينيا',SOM:'الصومال',DJI:'جيبوتي',ERI:'إريتريا'};
+var st=document.getElementById('st'),res=document.getElementById('result'),pv=document.getElementById('preview'),
+    copyBtn=document.getElementById('copyBtn'),raw=document.getElementById('raw');
+var C={EGY:'مصر',SAU:'السعودية',YEM:'اليمن',SDN:'السودان',MAR:'المغرب',DZA:'الجزائر',TUN:'تونس',LBY:'ليبيا',SYR:'سوريا',JOR:'الأردن',LBN:'لبنان',PSE:'فلسطين',IRQ:'العراق',KWT:'الكويت',QAT:'قطر',ARE:'الإمارات',OMN:'عُمان',BHR:'البحرين',TUR:'تركيا',USA:'أمريكا',GBR:'بريطانيا',FRA:'فرنسا',DEU:'ألمانيا',ITA:'إيطاليا',IND:'الهند',PAK:'باكستان',BGD:'بنغلاديش',PHL:'الفلبين',IDN:'إندونيسيا',NGA:'نيجيريا',ETH:'إثيوبيا',KEN:'كينيا',SOM:'الصومال',DJI:'جيبوتي',ERI:'إريتريا'};
 
 document.getElementById('cam').onchange=function(e){go(e.target.files[0])};
 document.getElementById('gal').onchange=function(e){go(e.target.files[0])};
-
 function go(f){if(!f)return;pv.onload=run;pv.src=URL.createObjectURL(f);pv.hidden=false}
+function log(m){if(m.status==='recognizing text')st.textContent='جارٍ القراءة... %'+Math.round(m.progress*100)}
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+/* تحسين الصورة تلقائياً: تكبير + تدرج رمادي + تقوية التباين */
+function prep(img,scale,cropFrac){
+ var w=img.naturalWidth,h=img.naturalHeight,sy=0,sh=h;
+ if(cropFrac){sh=Math.round(h*cropFrac);sy=h-sh}
+ var nw=Math.round(w*scale),nh=Math.round(sh*scale);
+ var c=document.createElement('canvas');c.width=nw;c.height=nh;
+ var ctx=c.getContext('2d');
+ ctx.drawImage(img,0,sy,w,sh,0,0,nw,nh);
+ var d=ctx.getImageData(0,0,nw,nh),p=d.data,i,g,min=255,max=0;
+ for(i=0;i<p.length;i+=4){g=(p[i]*0.3+p[i+1]*0.59+p[i+2]*0.11)|0;p[i]=p[i+1]=p[i+2]=g;if(g<min)min=g;if(g>max)max=g}
+ var rng=Math.max(1,max-min);
+ for(i=0;i<p.length;i+=4){g=Math.round((p[i]-min)*255/rng);p[i]=p[i+1]=p[i+2]=g}
+ ctx.putImageData(d,0,0);
+ return c}
 
 async function run(){
  try{
-  res.hidden=true;document.getElementById('copyBtn').hidden=true;
-  var log=function(m){if(m.status==='recognizing text')st.textContent='جارٍ قراءة الجواز... %'+Math.round(m.progress*100)};
-  st.textContent='جارٍ قراءة الجواز... (قد يستغرق حتى 30 ثانية)';
-  var r=await Tesseract.recognize(pv,'eng',{logger:log});
-  var d=extract(r.data.text);
-  if(!d){ // إعادة المحاولة على النصف السفلي من الصورة (مكان سطور MRZ)
-   var w=pv.naturalWidth,h=pv.naturalHeight,cut=Math.round(h*0.45);
-   var c=document.createElement('canvas');c.width=w;c.height=cut;
-   c.getContext('2d').drawImage(pv,0,h-cut,w,cut,0,0,w,cut);
-   r=await Tesseract.recognize(c,'eng',{logger:log});
+  res.hidden=true;copyBtn.hidden=true;
+  st.textContent='جارٍ تحميل محرك القراءة... (أول مرة فقط يأخذ وقتاً أطول)';
+  var scale=Math.min(2,1500/pv.naturalWidth);
+  var wk=await Tesseract.createWorker('eng',1,{logger:log});
+  await wk.setParameters({tessedit_pageseg_mode:'6'});
+  var fracs=[0.30,0.45,null],d=null,i,r;
+  for(i=0;i<fracs.length&&!d;i++){
+   st.textContent='جارٍ قراءة سطور MRZ (محاولة '+(i+1)+' من 3)...';
+   r=await wk.recognize(prep(pv,scale,fracs[i]));
    d=extract(r.data.text);
   }
-  if(!d){st.textContent='';res.hidden=false;
-   res.innerHTML='<div class="warn">❌ لم أجد سطور الـMRZ.<br>جرّب صورة أوضح يظهر فيها <b>أسفل الجواز كاملاً</b> (السطران المليئان بـ&lt;&lt;&lt;) بإضاءة جيدة وزاوية مستقيمة.</div>';return}
-  st.textContent='✅ تمت القراءة بنجاح';render(d);
+  if(d){await wk.terminate();st.textContent='✅ تمت القراءة من سطور MRZ';render(d);return}
+  st.textContent='لم أجد سطور MRZ — جارٍ قراءة الصفحة المطبوعة كاملة...';
+  await wk.setParameters({tessedit_pageseg_mode:'3'});
+  var r2=await wk.recognize(prep(pv,scale,null));
+  await wk.terminate();
+  viz(r2.data.text);
  }catch(err){st.textContent='⚠️ حصل خطأ: '+err.message}
 }
 
+/* ---------- قراءة MRZ ---------- */
 function extract(text){
  var ls=text.toUpperCase().split(/\n/).map(function(l){return l.replace(/[^A-Z0-9<]/g,'')})
   .filter(function(l){return l.length>=40&&l.length<=48&&l.indexOf('>')===-1&&l.indexOf('<')>-1});
@@ -71,8 +94,7 @@ function extract(text){
  if(l1.charAt(0)!=='P')return null;
  l1=(l1+Array(45).join('<')).slice(0,44);
  l2=(l2+Array(45).join('<')).slice(0,44);
- return parseTD3(l1,l2);
-}
+ return parseTD3(l1,l2)}
 
 function cd(s){var w=[7,3,1],t=0,i,c;
  for(i=0;i<s.length;i++){c=s.charAt(i);
@@ -106,16 +128,52 @@ function render(d){
   ['الجنس',d.sex==='M'?'ذكر (M)':d.sex==='F'?'أنثى (F)':d.sex],
   ['تاريخ الانتهاء',dt(d.exp,true)+mark(d.okExp)]];
  var h='';
- rows.forEach(function(r){h+='<div class="row"><b>'+r[0]+'</b><span class="val">'+r[1]+'</span></div>'});
- h+='<div class="warn">علامة ⚠️ تعني احتمال خطأ في القراءة — قارنها بنظرك مع الصورة.</div>';
+ rows.forEach(function(r){h+='<div class="row"><b>'+r[0]+'</b><span class="val">'+esc(r[1])+'</span></div>'});
+ h+='<div class="warn">✔ = قراءة مؤكدة بأرقام التحقق، ⚠️ = قارنها بنظرك مع الصورة.</div>';
  res.innerHTML=h;res.hidden=false;
- document.getElementById('raw').value='SURNAME: '+d.surname+'\nGIVEN NAMES: '+d.given+
-  '\nNATIONALITY: '+(d.country||d.issuer)+'\nPASSPORT NO: '+d.doc+
-  '\nDATE OF BIRTH: '+dt(d.dob)+'\nSEX: '+d.sex+'\nEXPIRY: '+dt(d.exp,true);
- document.getElementById('copyBtn').hidden=false}
+ raw.value='SURNAME: '+d.surname+'\nGIVEN NAMES: '+d.given+'\nNATIONALITY: '+(d.country||d.issuer)
+  +'\nPASSPORT NO: '+d.doc+'\nDATE OF BIRTH: '+dt(d.dob)+'\nSEX: '+d.sex+'\nEXPIRY: '+dt(d.exp,true);
+ copyBtn.hidden=false}
+
+/* ---------- بلا MRZ: قراءة النص المطبوع ---------- */
+function clean(s){return (s||'').replace(/\s+/g,' ').trim()}
+var DATEP='\\d{1,2}[ .\\/-](?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[ .\\/-]\\d{2,4}|\\d{2}[ .\\/-]\\d{2}[ .\\/-]\\d{4}';
+function viz(text){
+ st.textContent='📄 عرض قراءة الصفحة (تقريبية — تحقق منها)';
+ var t=text.toUpperCase().replace(/\s+/g,' ');
+ function g(re){var m=t.match(re);return m?clean(m[1]):''}
+ var f={};
+ f['اسم العائلة']=g(new RegExp('SURNAME[\\/:\\s]*([A-Z][A-Z ]{1,30}?)(?=\\s*(?:GIVEN|NATIONALITY|DATE|SEX|TYPE|CODE))'));
+ f['الاسم الأول']=g(new RegExp('(?:GIVEN NAMES?|GIVEN NAME|FIRST NAME)[\\/:\\s]*([A-Z][A-Z ]{1,30}?)(?=\\s*(?:NATIONALITY|DATE|SEX|PLACE))'));
+ f['الجنسية']=g(new RegExp('NATIONALITY[\\/:\\s]*([A-Z][A-Z ]{1,25}?)(?=\\s*(?:DATE|SEX|PLACE|TYPE))'));
+ f['رقم الجواز']=g(new RegExp('(?:PASSPORT NO\\.?|PASSPORT NUMBER|DOCUMENT NO\\.?)[\\/:\\s]*([A-Z0-9]{5,12})'));
+ f['تاريخ الميلاد']=g(new RegExp('(?:DATE OF BIRTH|BIRTH DATE)[\\/:\\s]*('+DATEP+')'));
+ f['الجنس']=g(/\bSEX[\/:\s]*(M|F)\b/);
+ f['تاريخ الانتهاء']=g(new RegExp('(?:EXPIRY DATE|DATE OF EXPIRY|EXPIRATION DATE|EXPIRY)[\\/:\\s]*('+DATEP+')'));
+ var found=Object.keys(f).filter(function(k){return f[k]});
+ var dates=t.match(/\b\d{1,2}[ .\/-](?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[ .\/-]\d{2,4}\b/g)||t.match(/\b\d{2}[ .\/-]\d{2}[ .\/-]\d{4}\b/g)||[];
+ var nums=t.match(/\b[A-Z]{1,2}\d{6,8}\b/g)||[];
+ var h='';
+ if(found.length){
+  h+='<h3>البيانات المستخرجة (تحقق منها بنفسك)</h3>';
+  found.forEach(function(k){h+='<div class="row"><b>'+k+'</b><span class="val">'+esc(f[k])+'</span></div>'});
+ }else{
+  h+='<div class="warn">لم أستطع تحديد الحقول تلقائياً — استخدم التواريخ والأرقام بالأسفل، أو انسخ النص الكامل.</div>';
+ }
+ h+='<h3>التواريخ الموجودة في الصفحة</h3>';
+ h+=dates.length?dates.map(function(x){return '<span class="tag">'+x+'</span>'}).join(' '):'<span class="warn">لا يوجد</span>';
+ h+='<h3>أرقام مرشحة لرقم الجواز</h3>';
+ h+=nums.length?nums.map(function(x){return '<span class="tag">'+x+'</span>'}).join(' '):'<span class="warn">لا يوجد</span>';
+ h+='<h3>النص الكامل المقروء (انسخ منه ما تحتاجه)</h3><div id="rawtext">'+esc(text.trim())+'</div>';
+ h+='<div class="warn">هذه قراءة تقريبية للنص المطبوع — بدون سطور MRZ لا توجد أرقام تحقق، فقارن دائماً بالصورة قبل إصدار التذكرة.</div>';
+ res.innerHTML=h;res.hidden=false;
+ raw.value=found.map(function(k){return k+': '+f[k]}).join('\n')
+  +'\nالتواريخ: '+dates.join(' , ')+'\nأرقام مرشحة: '+nums.join(' , ')
+  +'\n--- النص الكامل ---\n'+text.trim();
+ copyBtn.hidden=false}
 
 function copyAll(){
- var t=document.getElementById('raw');
+ var t=raw;
  if(navigator.clipboard&&navigator.clipboard.writeText){
   navigator.clipboard.writeText(t.value).then(function(){alert('تم النسخ ✅')})
  }else{t.hidden=false;t.select();document.execCommand('copy');t.hidden=true;alert('تم النسخ ✅')}}
