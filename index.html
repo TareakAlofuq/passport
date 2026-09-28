@@ -46,14 +46,26 @@ function go(f){if(!f)return;pv.onload=run;pv.src=URL.createObjectURL(f);pv.hidde
 function log(m){if(m.status==='recognizing text')st.textContent='جارٍ القراءة... %'+Math.round(m.progress*100)}
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
-/* تحسين الصورة تلقائياً: تكبير + تدرج رمادي + تقوية التباين */
-function prep(img,scale,cropFrac){
- var w=img.naturalWidth,h=img.naturalHeight,sy=0,sh=h;
+/* تدوير الصورة بالدرجات المطلوبة */
+function rotCanvas(img,rot){
+ if(!rot)return img;
+ var w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
+ var c=document.createElement('canvas');
+ if(rot%180){c.width=h;c.height=w}else{c.width=w;c.height=h}
+ var ctx=c.getContext('2d');
+ ctx.translate(c.width/2,c.height/2);
+ ctx.rotate(rot*Math.PI/180);
+ ctx.drawImage(img,-w/2,-h/2);
+ return c}
+
+/* قص الجزء السفلي + تكبير + تدرج رمادي + تقوية التباين */
+function prepCanvas(src,scale,cropFrac){
+ var w=src.naturalWidth||src.width,h=src.naturalHeight||src.height,sy=0,sh=h;
  if(cropFrac){sh=Math.round(h*cropFrac);sy=h-sh}
  var nw=Math.round(w*scale),nh=Math.round(sh*scale);
  var c=document.createElement('canvas');c.width=nw;c.height=nh;
  var ctx=c.getContext('2d');
- ctx.drawImage(img,0,sy,w,sh,0,0,nw,nh);
+ ctx.drawImage(src,0,sy,w,sh,0,0,nw,nh);
  var d=ctx.getImageData(0,0,nw,nh),p=d.data,i,g,min=255,max=0;
  for(i=0;i<p.length;i+=4){g=(p[i]*0.3+p[i+1]*0.59+p[i+2]*0.11)|0;p[i]=p[i+1]=p[i+2]=g;if(g<min)min=g;if(g>max)max=g}
  var rng=Math.max(1,max-min);
@@ -65,21 +77,40 @@ async function run(){
  try{
   res.hidden=true;copyBtn.hidden=true;
   st.textContent='جارٍ تحميل محرك القراءة... (أول مرة فقط يأخذ وقتاً أطول)';
-  var scale=Math.min(2,1500/pv.naturalWidth);
+  var scale=Math.min(2,1500/(pv.naturalWidth||pv.width));
   var wk=await Tesseract.createWorker('eng',1,{logger:log});
   await wk.setParameters({tessedit_pageseg_mode:'6'});
-  var fracs=[0.30,0.45,null],d=null,i,r;
-  for(i=0;i<fracs.length&&!d;i++){
-   st.textContent='جارٍ قراءة سطور MRZ (محاولة '+(i+1)+' من 3)...';
-   r=await wk.recognize(prep(pv,scale,fracs[i]));
-   d=extract(r.data.text);
+
+  /* نجرّب الاتجاهات الأربعة: معتدل، مقلوب، جانبي يمين، جانبي يسار */
+  var rots=[0,180,90,270],d=null,rotUsed=0,i,j,r;
+  for(i=0;i<rots.length&&!d;i++){
+   var rot=rots[i],src=rotCanvas(pv,rot),frs=[0.30,0.45];
+   for(j=0;j<frs.length&&!d;j++){
+    st.textContent=rot?('🔄 الصورة باتجاه خاطئ ('+rot+'°) — جارٍ التصحيح والقراءة...'):'جارٍ قراءة سطور MRZ...';
+    r=await wk.recognize(prepCanvas(src,scale,frs[j]));
+    d=extract(r.data.text);
+   }
+   if(d)rotUsed=rot;
   }
-  if(d){await wk.terminate();st.textContent='✅ تمت القراءة من سطور MRZ';render(d);return}
+  if(d){
+   await wk.terminate();
+   if(rotUsed){pv.onload=null;pv.src=rotCanvas(pv,rotUsed).toDataURL('image/jpeg',0.9)}
+   st.textContent='✅ تمت القراءة'+(rotUsed?' (تم تصحيح اتجاه الصورة تلقائياً)':'');
+   render(d);return}
+
+  /* بلا MRZ: نقرأ الصفحة كاملة ونختار الاتجاه الأفضل */
   st.textContent='لم أجد سطور MRZ — جارٍ قراءة الصفحة المطبوعة كاملة...';
   await wk.setParameters({tessedit_pageseg_mode:'3'});
-  var r2=await wk.recognize(prep(pv,scale,null));
+  var best=null;
+  for(i=0;i<2;i++){
+   var rot2=i?180:0;
+   r=await wk.recognize(prepCanvas(rotCanvas(pv,rot2),scale,null));
+   var score=(r.data.text.match(/[A-Z]{2,}/g)||[]).length;
+   if(!best||score>best.score)best={text:r.data.text,score:score,rot:rot2};
+  }
   await wk.terminate();
-  viz(r2.data.text);
+  if(best.rot){pv.onload=null;pv.src=rotCanvas(pv,best.rot).toDataURL('image/jpeg',0.9)}
+  viz(best.text);
  }catch(err){st.textContent='⚠️ حصل خطأ: '+err.message}
 }
 
