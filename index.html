@@ -16,6 +16,7 @@ img#preview{max-width:100%;border-radius:12px;margin-top:12px}
 .row b{color:#8ecae6;white-space:nowrap}
 .val{word-break:break-all;direction:ltr;text-align:right}
 .warn{color:#e76f51;font-size:13px;margin-top:8px}
+.notes{color:#f4a261;font-size:13px;margin-top:8px;text-align:right}
 .src{font-size:11px;color:#6a6a7a;margin-top:6px}
 #keybox{background:#20202c;border-radius:12px;padding:12px;margin:10px 0;text-align:right}
 .keyrow{display:flex;gap:8px;margin-top:6px}
@@ -29,14 +30,14 @@ img#preview{max-width:100%;border-radius:12px;margin-top:12px}
 <h2>🛂 قارئ بيانات الجواز</h2>
 
 <div id="keybox">
-<b style="color:#8ecae6">🔑 مفتاح Mindee</b>
+<b style="color:#8ecae6">🔑 مفتاح Google AI Studio</b>
 <div class="keyrow">
- <input id="apikey" type="password" placeholder="الصق المفتاح هنا" oninput="saveKey()">
- <button class="small" style="margin:0" onclick="toggleEye()">👁</button>
+<input id="apikey" type="password" placeholder="الصق المفتاح هنا (يبدأ بـ AIza...)" oninput="saveKey()">
+<button class="small" style="margin:0" onclick="toggleEye()">👁</button>
 </div>
 <button class="small" onclick="testKey()">⚡ اختبار المفتاح</button>
 <div id="testout"></div>
-<div class="small">يُحفظ في هاتفك فقط ولا يراه أحد. اضغط «اختبار المفتاح» للتأكد قبل إرسال الصور.</div>
+<div class="small">مجاني من aistudio.google.com بدون بطاقة دفع. يُحفظ في هاتفك فقط.</div>
 </div>
 
 <div>
@@ -54,80 +55,38 @@ img#preview{max-width:100%;border-radius:12px;margin-top:12px}
 
 <script>
 var st=document.getElementById('st'),res=document.getElementById('result'),pv=document.getElementById('preview'),
-    copyBtn=document.getElementById('copyBtn'),raw=document.getElementById('raw'),
-    errbox=document.getElementById('errbox');
+    copyBtn=document.getElementById('copyBtn'),raw=document.getElementById('raw'),errbox=document.getElementById('errbox');
 var C={LBY:'ليبيا',EGY:'مصر',TUN:'تونس',DZA:'الجزائر',MAR:'المغرب',SDN:'السودان',YEM:'اليمن',SYR:'سوريا',JOR:'الأردن',LBN:'لبنان',PSE:'فلسطين',IRQ:'العراق',KWT:'الكويت',QAT:'قطر',ARE:'الإمارات',OMN:'عُمان',BHR:'البحرين',SAU:'السعودية',TUR:'تركيا',USA:'أمريكا',GBR:'بريطانيا',FRA:'فرنسا',ITA:'إيطاليا',DEU:'ألمانيا',MLI:'مالي',NER:'النيجر',TCD:'تشاد',CIV:'ساحل العاج',SEN:'السنغال',GHA:'غانا',NGA:'نيجيريا'};
+var WORD={LIBYAN:'LBY',EGYPTIAN:'EGY',TUNISIAN:'TUN',ALGERIAN:'DZA',MOROCCAN:'MAR',SUDANESE:'SDN',YEMENI:'YEM',SYRIAN:'SYR',JORDANIAN:'JOR',LEBANESE:'LBN',IRAQI:'IRQ',SAUDI:'SAU',TURKISH:'TUR'};
+
+var MODELS=['gemini-2.0-flash','gemini-flash-latest','gemini-1.5-flash','gemini-2.5-flash'];
+
+var PROMPT=[
+'You are an expert passport OCR system. The image shows a passport bio-data page.',
+'It may be rotated, mirrored, low quality, or photographed at an angle. Mentally fix the orientation first.',
+'Read BOTH the printed zone (English labels like SURNAME, GIVEN NAMES, DATE OF BIRTH; Arabic text may also be present) AND the two MRZ lines at the bottom (starting with P<) if visible.',
+'When printed text and MRZ disagree, prefer the MRZ values.',
+'Dates must be formatted YYYY-MM-DD. sex must be "M" or "F". nationality: the 3-letter code if known (e.g. LBY), else the printed word.',
+'Use null for any field that is truly unreadable. NEVER invent values.',
+'Return ONLY this JSON object and nothing else:',
+'{"surname":"","given_names":"","nationality":"","passport_number":"","date_of_birth":"","sex":"","date_of_issue":"","date_of_expiry":"","place_of_birth":"","issuing_authority":"","mrz_line1":"","mrz_line2":"","rotation_degrees_needed":0}'
+].join('\n');
+
+/* ---------- المفتاح ---------- */
+function cleanKey(){var k=document.getElementById('apikey').value||'';return k.replace(/\s+/g,'').replace(/^["']+|["']+$/g,'')}
+function saveKey(){localStorage.setItem('gk',cleanKey())}
+function getKey(){return (localStorage.getItem('gk')||'').trim()}
+document.getElementById('apikey').value=getKey();
+function toggleEye(){var i=document.getElementById('apikey');i.type=(i.type==='password')?'text':'password'}
+
+/* ---------- أدوات ---------- */
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function showErr(m){errbox.hidden=false;errbox.innerHTML='⚠️ '+esc(m);res.hidden=true;copyBtn.hidden=true}
+function gerr(j){return (j&&j.error&&j.error.message)?j.error.message:''}
 
 var origFile=null;
 document.getElementById('cam').onchange=function(e){go(e.target.files[0])};
 document.getElementById('gal').onchange=function(e){go(e.target.files[0])};
-
-function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-
-/* ---------- المفتاح ---------- */
-function cleanKey(){
- var k=document.getElementById('apikey').value||'';
- k=k.replace(/\s+/g,'')                    /* كل المسافات والأسطر */
-    .replace(/^["']+|["']+$/g,'')          /* علامات تنصيص */
-    .replace(/^(token|bearer)[:\s]*/i,''); /* لو نسخت كلمة Token/Bearer بالخطأ */
- return k}
-function saveKey(){localStorage.setItem('mk',cleanKey())}
-function getKey(){return localStorage.getItem('mk')||''}
-document.getElementById('apikey').value=getKey();
-function toggleEye(){var i=document.getElementById('apikey');i.type=(i.type==='password')?'text':'password'}
-
-/* ---------- بناء محاولات الإرسال (نسخة × صيغة مصادقة) ---------- */
-var VERS=['v4','v3','v5','v2','v1'],SCHS=['Token','Bearer','','token'];
-function attempts(){
- var list=[],sv=(localStorage.getItem('combo')||'').split('|');
- if(sv.length===2&&sv[0]&&sv[1])list.push({v:sv[0],s:sv[1]});
- SCHS.forEach(function(s){VERS.forEach(function(v){
-  if(!list.some(function(a){return a.v===v&&a.s===s}))list.push({v:v,s:s})})});
- return list}
-
-function errmsg(j){
- if(!j)return'';
- if(j.message)return j.message;
- if(j.error&&j.error.message)return j.error.message;
- if(j.api_error&&j.api_error.message)return j.api_error.message;
- return''}
-
-async function callApi(key,ver,sch,body){
- var headers={};
- headers['Authorization']=sch?(sch+' '+key):key;
- var resp=await fetch('https://api.mindee.net/v1/products/mindee/passport/'+ver+'/predict',
-  {method:'POST',headers:headers,body:body});
- var txt=await resp.text(),j=null;
- try{j=JSON.parse(txt)}catch(e){}
- return{status:resp.status,json:j,txt:txt}}
-
-function predOf(j){
- if(!j)return null;
- if(j.document&&j.document.prediction)return j.document.prediction;
- if(j.prediction)return j.prediction;
- return null}
-
-/* ---------- اختبار المفتاح بدون صورة ---------- */
-async function testKey(){
- var out=document.getElementById('testout'),key=getKey();
- if(!key){out.innerHTML='<span style="color:#ff9a8a">الصق المفتاح أولاً ثم اضغط الاختبار.</span>';return}
- if(key.length<15){out.innerHTML='<span style="color:#ff9a8a">⚠️ المفتاح قصير جداً ('+key.length+' حرفاً فقط) — يبدو أنه لم يُنسخ كاملاً. انسخه من جديد بالكامل.</span>';return}
- out.innerHTML='<span style="color:#f4a261">⏳ جارٍ اختبار المفتاح...</span>';
- var atts=attempts(),last=null;
- for(var i=0;i<atts.length;i++){
-  var a=atts[i],r;
-  try{r=await callApi(key,a.v,a.s,new FormData())}
-  catch(e){out.innerHTML='<span style="color:#ff9a8a">❌ تعذر الاتصال بالسيرفر — تحقق من الإنترنت. لو تكررت أخبرني.</span>';return}
-  if(r.status===404)continue;
-  if(r.status===401||r.status===403){last=r;continue}
-  if(r.status>=500)continue;
-  localStorage.setItem('combo',a.v+'|'+a.s);
-  out.innerHTML='<span style="color:#9be3c9">✅ المفتاح يعمل بنجاح!</span> — أرسل الآن صورة الجواز 📷';
-  return}
- var m=last?errmsg(last.json):'';
- out.innerHTML='<span style="color:#ff9a8a">❌ السيرفر يرفض المفتاح [HTTP '+(last?last.status:'?')+']'+(m?' — "'+esc(m)+'"':'')+'</span><br><span style="color:#8a8a9a">تأكد أنك نسخت «API Key» نفسه (وليس Team ID أو غيره). لو استمرت المشكلة، انسخ هذه الرسالة وأرسلها لي حرفياً.</span>'}
-
-/* ---------- الصورة ---------- */
 function go(f){
  if(!f)return;
  origFile=f;
@@ -136,106 +95,188 @@ function go(f){
  pv.src=URL.createObjectURL(f);
  pv.hidden=false}
 
-function showError(msg){
- errbox.hidden=false;
- errbox.innerHTML='⚠️ '+esc(msg);
- res.hidden=true;copyBtn.hidden=true}
+function rotC(img,rot){
+ var w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
+ var c=document.createElement('canvas');
+ if(rot%180){c.width=h;c.height=w}else{c.width=w;c.height=h}
+ var x=c.getContext('2d');
+ x.translate(c.width/2,c.height/2);x.rotate(rot*Math.PI/180);
+ x.drawImage(img,-w/2,-h/2);return c}
 
-function raw2jpg(file){
- return new Promise(function(resolve){
+function toB64(file){
+ return new Promise(function(resolve,reject){
   var fr=new FileReader();
   fr.onload=function(){
    var img=new Image();
    img.onload=function(){
-    var mx=1600;
-    var sc=Math.min(1,mx/Math.max(img.width,img.height));
-    if(sc>=1){resolve(file);return}
+    var mx=1800,sc=Math.min(1,mx/Math.max(img.width,img.height));
     var c=document.createElement('canvas');
     c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);
     var x=c.getContext('2d');
     x.imageSmoothingQuality='high';
     x.drawImage(img,0,0,c.width,c.height);
-    c.toBlob(function(b){resolve(b||file)},'image/jpeg',0.95)};
-   img.onerror=function(){resolve(file)};
+    var durl=c.toDataURL('image/jpeg',0.92);
+    resolve({b64:durl.split(',')[1],mime:'image/jpeg'})};
+   img.onerror=function(){reject(new Error('تعذر قراءة الصورة'))};
    img.src=fr.result};
-  fr.onerror=function(){resolve(file)};
+  fr.onerror=function(){reject(new Error('تعذر فتح الملف'))};
   fr.readAsDataURL(file)})}
+
+/* ---------- الاتصال بـ Gemini ---------- */
+async function callGem(key,model,payload){
+ var resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+encodeURIComponent(key),
+  {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+ var txt=await resp.text(),j=null;
+ try{j=JSON.parse(txt)}catch(e){}
+ return{status:resp.status,json:j,txt:txt}}
+
+function parseGem(j){
+ if(j&&j.candidates&&j.candidates.length){
+  var c=j.candidates[0];
+  if(c.content&&c.content.parts&&c.content.parts.length){
+   var t='';
+   for(var i=0;i<c.content.parts.length;i++)t+=(c.content.parts[i].text||'');
+   t=t.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
+   try{return JSON.parse(t)}catch(e){}
+   var a=t.indexOf('{'),b=t.lastIndexOf('}');
+   if(a>-1&&b>a){try{return JSON.parse(t.slice(a,b+1))}catch(e2){}}}}
+ return null}
+
+async function testKey(){
+ var out=document.getElementById('testout'),key=getKey();
+ if(!key){out.innerHTML='<span style="color:#ff9a8a">الصق المفتاح أولاً.</span>';return}
+ if(key.indexOf('AIza')!==0){out.innerHTML='<span style="color:#ff9a8a">⚠️ مفاتيح جوجل تبدأ بـ AIza — يبدو أنه لم يُنسخ كاملاً.</span>';return}
+ out.innerHTML='<span style="color:#f4a261">⏳ جارٍ اختبار المفتاح...</span>';
+ try{
+  for(var i=0;i<MODELS.length;i++){
+   var r=await callGem(key,MODELS[i],{contents:[{parts:[{text:'Reply with the word OK'}]}],generationConfig:{maxOutputTokens:10}});
+   if(r.status===404)continue;
+   if(r.status===200){out.innerHTML='<span style="color:#9be3c9">✅ المفتاح يعمل بنجاح!</span> — أرسل الآن صورة الجواز 📷';return}
+   var m=gerr(r.json);
+   if(r.status===400&&/API key not valid/i.test(m)){out.innerHTML='<span style="color:#ff9a8a">❌ المفتاح غير صالح — انسخه من جديد كاملاً من AI Studio.</span>';return}
+   out.innerHTML='<span style="color:#ff9a8a">❌ خطأ '+r.status+(m?' — '+esc(m):'')+'</span>';return}
+  out.innerHTML='<span style="color:#ff9a8a">❌ لم يستجب السيرفر — أخبرني بالرسالة.</span>';
+ }catch(e){out.innerHTML='<span style="color:#ff9a8a">❌ تعذر الاتصال بخدمة جوجل — تحقق من الإنترنت، ولو تكرر أخبرني.</span>'}}
+
+/* ---------- التحقق الرياضي من MRZ ---------- */
+function cd(s){var w=[7,3,1],t=0,i,c;
+ for(i=0;i<s.length;i++){c=s.charAt(i);t+=(c==='<'?0:(c<='9'?+c:c.charCodeAt(0)-55))*w[i%3]}
+ return t%10}
+
+function verify(d){
+ d.okDoc=d.okDob=d.okExp=null;
+ var l1=String(d.mrz_line1||'').toUpperCase().replace(/[^A-Z0-9<]/g,'');
+ var l2=String(d.mrz_line2||'').toUpperCase().replace(/[^A-Z0-9<]/g,'');
+ d.hasMrz=(l1.charAt(0)==='P'&&l2.length>=28);
+ if(!d.hasMrz)return;
+ if(/\d/.test(l2.charAt(9)))d.okDoc=cd(l2.slice(0,9))===+l2.charAt(9);
+ if(/\d/.test(l2.charAt(19)))d.okDob=cd(l2.slice(13,19))===+l2.charAt(19);
+ if(/\d/.test(l2.charAt(27)))d.okExp=cd(l2.slice(21,27))===+l2.charAt(27)}
+
+function crossNotes(d){
+ var notes=[],l2=String(d.mrz_line2||'').toUpperCase().replace(/[^A-Z0-9<]/g,'');
+ if(l2.length>=28){
+  var dob=l2.slice(13,19),exp=l2.slice(21,27);
+  function mrzD(s,isExp){
+   if(!/^\d{6}$/.test(s))return null;
+   var y=+s.slice(0,2),cy=new Date().getFullYear()%100;
+   var yr=isExp?2000+y:(y>cy?1900+y:2000+y);
+   return yr+'-'+s.slice(2,4)+'-'+s.slice(4)}
+  var d1=mrzD(dob),d2=mrzD(exp,true);
+  if(d1&&d.date_of_birth&&d1!==d.date_of_birth)notes.push('• تنبيه: الميلاد في MRZ ('+d1+') يختلف عن المقروء ('+d.date_of_birth+')');
+  if(d2&&d.date_of_expiry&&d2!==d.date_of_expiry)notes.push('• تنبيه: الانتهاء في MRZ ('+d2+') يختلف عن المقروء ('+d.date_of_expiry+')');
+  var docM=l2.slice(0,9).replace(/</g,'');
+  if(docM&&d.passport_number&&docM!==String(d.passport_number).toUpperCase())notes.push('• تنبيه: رقم الجواز في MRZ ('+docM+') يختلف عن المقروء ('+d.passport_number+')')}
+ return notes}
 
 /* ---------- المعالجة الرئيسية ---------- */
 async function run(){
  errbox.hidden=true;res.hidden=true;copyBtn.hidden=true;
  var key=getKey();
- if(!key){showError('لا يوجد مفتاح. الصقه في الصندوق أعلى الصفحة ثم أعد اختيار الصورة.');st.textContent='';return}
+ if(!key){showErr('لا يوجد مفتاح. اذهب إلى aistudio.google.com → Get API key → انسخه والصقه أعلاه، ثم أعد اختيار الصورة.');st.textContent='';return}
  try{
-  st.textContent='☁️ جارٍ إرسال الصورة إلى المحرك السحابي...';
-  var file=await raw2jpg(origFile);
-  var atts=attempts(),last=null;
-  for(var i=0;i<atts.length;i++){
-   var a=atts[i];
-   st.textContent='☁️ جارٍ القراءة'+(i>0?' (محاولة '+(i+1)+')':'')+'...';
-   var fd=new FormData();
-   fd.append('document',file,'passport.jpg');
+  st.textContent='🖼️ جارٍ تجهيز الصورة...';
+  var im=await toB64(origFile);
+  var payload={contents:[{parts:[{text:PROMPT},{inline_data:{mime_type:im.mime,data:im.b64}}]}],
+   generationConfig:{temperature:0,response_mime_type:'application/json'}};
+  var last=null,fmtFail=false;
+  for(var i=0;i<MODELS.length;i++){
+   st.textContent='☁️ جارٍ قراءة الجواز بالمحرك الذكي...';
    var r;
-   try{r=await callApi(key,a.v,a.s,fd)}
-   catch(e){showError('تعذر الاتصال بالسيرفر — تحقق من الإنترنت. لو تكررت أخبرني.');st.textContent='';return}
-   if(r.status===404)continue;
-   if(r.status===401||r.status===403){last=r;continue}
-   if(r.status===402||r.status===429){showError('انتهت حصتك لهذا الشهر أو تجاوزت حد المرسلات في الدقيقة — انتظر قليلاً أو راجع خطتك في Mindee.');st.textContent='';return}
-   if(r.status>=500){last=r;continue}
-   if(r.status>=200&&r.status<300){
-    var p=predOf(r.json);
-    if(p&&(p.surname||p.document_number||p.given_names)){
-     localStorage.setItem('combo',a.v+'|'+a.s);
-     st.textContent='✅ تمت القراءة بنجاح';
-     renderCloud(p);return}
-    showError('لم يتعرف المحرك على جواز في هذه الصورة. جرّب صورة أوضح لصفحة البيانات (صفحة الصورة والبيانات، ليست الغلاف).');st.textContent='';return}
-   last=r;break}
-  var m=last?errmsg(last.json):'';
-  showError('السيرفر يرفض المفتاح [HTTP '+(last?last.status:'?')+']'+(m?' — '+m:'')+'. اضغط زر «اختبار المفتاح» أعلاه واتبع تعليماته.');
+   try{r=await callGem(key,MODELS[i],payload)}
+   catch(e){showErr('تعذر الاتصال بخدمة جوجل — تحقق من الإنترنت. لو تكرر أخبرني فوراً.');st.textContent='';return}
+   if(r.status===200){
+    var d=parseGem(r.json);
+    if(d){st.textContent='✅ تمت القراءة بنجاح';render(d);return}
+    fmtFail=true;last=r;continue}
+   if(r.status===400){
+    var m=gerr(r.json);
+    if(/API key not valid/i.test(m)){showErr('المفتاح غير صالح — اضغط «اختبار المفتاح» للتأكد منه.');st.textContent='';return}
+    last=r;continue}
+   if(r.status===403){showErr('المفتاح مرفوض (403) — '+(gerr(r.json)||'راجع صلاحياته في AI Studio'));st.textContent='';return}
+   if(r.status===429){showErr('طلبات كثيرة متقاربة — انتظر نصف دقيقة وأعد المحاولة.');st.textContent='';return}
+   last=r;continue}
+  if(fmtFail){showErr('وصل رد غير مفهوم من المحرك — أعد المحاولة مرة أخرى.')}
+  else{showErr('تعذّرت القراءة [HTTP '+(last?last.status:'?')+']'+(last&&gerr(last.json)?' — '+gerr(last.json):'')+'. أعد المحاولة أو انسخ لي هذه الرسالة.')}
   st.textContent='';
- }catch(e){showError('خطأ غير متوقع: '+e.message);st.textContent=''}}
+ }catch(e){showErr('خطأ غير متوقع: '+e.message);st.textContent=''}}
 
-/* ---------- عرض النتائج ---------- */
-function renderCloud(p){
- function v(x){if(x&&typeof x==='object')return x.value||'';return x||''}
- var gv='';
- if(p.given_names){
-  if(Array.isArray(p.given_names))gv=p.given_names.map(function(x){return (x&&x.value)||''}).join(' ').trim();
-  else gv=v(p.given_names)}
- var sn=v(p.surname),doc=v(p.document_number),nat=v(p.nationality),ctry=v(p.country),
-     dob=v(p.birth_date),exp=v(p.expiry_date),sex=v(p.sex),iss=v(p.issue_date),
-     bp=v(p.birth_place),auth=v(p.issuing_authority);
+/* ---------- العرض ---------- */
+function normDate(s){
+ if(!s)return null;
+ s=String(s).trim();
+ var m=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+ if(m)return m[1]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[3]).slice(-2);
+ var m2=s.match(/^(\d{1,2})[\s.\/-](\d{1,2})[\s.\/-](\d{4})$/);
+ if(m2)return m2[3]+'-'+('0'+m2[2]).slice(-2)+'-'+('0'+m2[1]).slice(-2);
+ return s}
+
+function render(d){
+ verify(d);
+ var notes=crossNotes(d);
+ var rot=parseInt(d.rotation_degrees_needed,10);
+ if(rot===90||rot===180||rot===270){pv.onload=null;pv.src=rotC(pv,rot).toDataURL('image/jpeg',0.92)}
+ function natDisp(nat){
+  if(!nat)return'';
+  var s=String(nat).toUpperCase().trim();
+  if(C[s])return C[s]+' ('+s+')';
+  if(WORD[s])return (C[WORD[s]]||s)+' ('+WORD[s]+')';
+  return String(nat)}
+ function mark(v){return v===true?' ✔':v===false?' ⚠️':''}
+ var sex=d.sex;
+ if(/^(m|male|ذكر)/i.test(String(sex||'')))sex='M';
+ else if(/^(f|female|أنثى)/i.test(String(sex||'')))sex='F';
+ var dob=normDate(d.date_of_birth),iss=normDate(d.date_of_issue),expd=normDate(d.date_of_expiry);
  var rows=[];
- function add(l,val){if(val)rows.push([l,val])}
- add('اسم العائلة',sn);
- add('الاسم الأول',gv);
- var natD=C[nat]?C[nat]:(nat||'');
- if(!natD&&ctry)natD=C[ctry]?C[ctry]:ctry;
- add('الجنسية',natD?natD+(nat&&natD!==nat?' ('+nat+')':''):'');
- add('رقم الجواز',doc);
- add('تاريخ الميلاد',dob);
+ function add(l,v,mk){if(v!==null&&v!==undefined&&v!=='')rows.push([l,v,mk||''])}
+ add('اسم العائلة',d.surname);
+ add('الاسم الأول',d.given_names);
+ add('الجنسية',natDisp(d.nationality));
+ add('رقم الجواز',d.passport_number,mark(d.okDoc));
+ add('تاريخ الميلاد',dob,mark(d.okDob));
  add('الجنس',sex==='M'?'ذكر M':sex==='F'?'أنثى F':sex);
  add('تاريخ الإصدار',iss);
- add('تاريخ الانتهاء',exp);
- add('مكان الميلاد',bp);
- add('جهة الإصدار',auth);
+ add('تاريخ الانتهاء',expd,mark(d.okExp));
+ add('مكان الميلاد',d.place_of_birth);
+ add('جهة الإصدار',d.issuing_authority);
  var h='';
- rows.forEach(function(rw){h+='<div class="row"><b>'+rw[0]+'</b><span class="val">'+esc(rw[1])+'</span></div>'});
- if(!rows.length){showError('لم يستخرج المحرك أي بيانات — جرّب صورة أوضح.');return}
- h+='<div class="src">المصدر: المحرك السحابي Mindee (موديل مدرَّب على الجوازات) ✔</div>';
- h+='<div class="warn">راجع رقم الجواز وتاريخ الانتهاء قبل إصدار التذكرة كعادة دائمة.</div>';
+ if(!rows.length){showErr('لم تُستخرج بيانات — جرّب صورة أوضح.');return}
+ rows.forEach(function(rw){h+='<div class="row"><b>'+rw[0]+'</b><span class="val">'+esc(rw[1])+rw[2]+'</span></div>'});
+ if(notes.length)h+='<div class="notes">'+notes.map(esc).join('<br>')+'</div>';
+ h+='<div class="src">'+(d.hasMrz?'المصدر: Gemini + تحقق رياضي من سطور MRZ ✔':'المصدر: Gemini (قراءة الصفحة المطبوعة)')+'</div>';
+ h+='<div class="warn">✔ = مؤكد بأرقام التحقق، ⚠️ = راجعه مع الصورة. تحقق دائماً قبل إصدار التذكرة.</div>';
  res.innerHTML=h;res.hidden=false;
  var out=[];
- if(sn)out.push('SURNAME: '+sn);
- if(gv)out.push('GIVEN NAMES: '+gv);
- if(nat)out.push('NATIONALITY: '+nat);
- if(doc)out.push('PASSPORT NO: '+doc);
+ if(d.surname)out.push('SURNAME: '+d.surname);
+ if(d.given_names)out.push('GIVEN NAMES: '+d.given_names);
+ if(d.nationality)out.push('NATIONALITY: '+natDisp(d.nationality));
+ if(d.passport_number)out.push('PASSPORT NO: '+d.passport_number);
  if(dob)out.push('DATE OF BIRTH: '+dob);
  if(sex)out.push('SEX: '+sex);
  if(iss)out.push('ISSUE DATE: '+iss);
- if(exp)out.push('EXPIRY: '+exp);
- if(bp)out.push('PLACE OF BIRTH: '+bp);
- if(auth)out.push('AUTHORITY: '+auth);
+ if(expd)out.push('EXPIRY: '+expd);
+ if(d.place_of_birth)out.push('PLACE OF BIRTH: '+d.place_of_birth);
+ if(d.issuing_authority)out.push('AUTHORITY: '+d.issuing_authority);
  raw.value=out.join('\n');
  copyBtn.hidden=false}
 
